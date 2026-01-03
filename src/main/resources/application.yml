@@ -19,7 +19,7 @@ spring:
     baseline-on-migrate: true
 
 server:
-  port: ${PORT:3001}
+  port: ${PORT:8080}
 
 app:
   jwt:
