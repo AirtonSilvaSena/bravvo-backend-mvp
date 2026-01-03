@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS `servicos` (
 ) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Exportação de dados foi desmarcado.
-
+-- a
 -- Copiando estrutura para tabela bravvo_mvp.users
 CREATE TABLE IF NOT EXISTS `users` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
