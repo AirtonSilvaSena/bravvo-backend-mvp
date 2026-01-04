@@ -29,12 +29,12 @@ jobs:
           push: true
           tags: ghcr.io/airtonsilvasena/bravvo-backend-mvp:latest
 
-      - name: Connect to Tailscale
+      - name: Connect to Tailscale (Auth Key)
         uses: tailscale/github-action@v2
         with:
-          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
-          tags: tag:ci
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          # Remova se sua key não tiver tag embutida:
+          # tags: tag:ci
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
