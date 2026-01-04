@@ -23,6 +23,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 		this.userRepository = userRepository;
 	}
 //teste
+	//teste2
 	/**
 	 * Este método é chamado pelo Spring Security sempre que ele precisar carregar
 	 * um usuário.
