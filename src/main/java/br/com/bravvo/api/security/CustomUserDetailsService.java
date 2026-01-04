@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 //Teste deploy automatico
 import java.util.List;
 //teste 2
+//Teste 3
 /**
  * Classe responsável por ensinar o Spring Security a buscar um usuário no banco
  * de dados.
