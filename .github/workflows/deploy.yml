@@ -43,6 +43,12 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
+          command_timeout: 15m
+          script_stop: true
           script: |
             cd /opt/bravvo/infra
             ./deploy-api.sh
+            echo "---- last api logs ----"
+            docker logs --tail 80 bravvo-api || true
+
+
