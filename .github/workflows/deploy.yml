@@ -29,26 +29,39 @@ jobs:
           push: true
           tags: ghcr.io/airtonsilvasena/bravvo-backend-mvp:latest
 
-      - name: Connect to Tailscale (Auth Key)
+      - name: Connect to Tailscale
         uses: tailscale/github-action@v2
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-          # Remova se sua key não tiver tag embutida:
-          # tags: tag:ci
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: 100.111.221.48
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          command_timeout: 15m
-          script_stop: true
-          script: |
+      # (Opcional, mas recomendo) Debug pra provar que o runner alcança o servidor
+      - name: Debug reachability
+        run: |
+          tailscale status || true
+          echo "Testing TCP 22..."
+          nc -vz 100.111.221.48 22
+
+      - name: Deploy via SSH (native)
+        env:
+          SSH_HOST: 100.111.221.48
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY:  ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -e
+
+          # cria arquivo da chave
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # evita prompt de host key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+          # executa deploy no servidor
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" << 'EOF'
+            set -e
             cd /opt/bravvo/infra
-            ./deploy-api.sh
+            bash ./deploy-api.sh
             echo "---- last api logs ----"
             docker logs --tail 80 bravvo-api || true
-
-
+          EOF
