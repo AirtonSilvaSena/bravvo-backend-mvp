@@ -36,6 +36,12 @@ public class User {
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+    
+    @Column(name = "salao_id")
+    private Long salaoId;
+    
+    @Column(name = "email_verificado")
+    private boolean emailVerificado;
 
     // =========================
     // Callbacks JPA
@@ -114,5 +120,21 @@ public class User {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+    
+    public Long getSalaoId() {
+        return salaoId;
+    }
+
+    public void setSalaoId(Long salaoId) {
+        this.salaoId = salaoId;
+    }
+
+    public boolean isEmailVerificado() {
+        return emailVerificado;
+    }
+
+    public void setEmailVerificado(boolean emailVerificado) {
+        this.emailVerificado = emailVerificado;
     }
 }

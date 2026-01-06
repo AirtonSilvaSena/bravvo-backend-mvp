@@ -1,8 +1,11 @@
 spring:
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    # url: ${DB_URL}
+    # username: ${DB_USER}
+    # password: ${DB_PASSWORD}
+    url: jdbc:mariadb://localhost:3306/bravvo_mvp?useSSL=false&serverTimezone=UTC
+    username: root
+    password:
     driver-class-name: org.mariadb.jdbc.Driver
 
   jpa:
@@ -20,12 +23,30 @@ spring:
     baseline-on-migrate: true
     locations: classpath:db/migration
 
+  mail:
+    # host: ${MAIL_HOST}
+    # port: ${MAIL_PORT}
+    # username: ${MAIL_USER}
+    # password: ${MAIL_PASS}
+    host: smtp.gmail.com
+    port: 587
+    username: bravvoapp@gmail.com
+    password: iwgi qjhi takf buev  
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
 server:
-  port: ${PORT:8080}
+  # port: ${PORT:8080}
+  port: 8080
 
 app:
   jwt:
     issuer: bravvo-api
-    secret: ${JWT_SECRET}
+    # secret: ${JWT_SECRET}
+    secret: n8qvQ2m9s3A1Zp9YxX6yYtR5Kx4K7nHk5e0y1E9Jm2b6QZc0V8F7D4LrWw==
     access-token-minutes: 30
     refresh-token-days: 7
