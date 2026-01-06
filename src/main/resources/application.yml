@@ -1,12 +1,12 @@
 spring:
   datasource:
-    # url: ${DB_URL}
-    # username: ${DB_USER}
-    # password: ${DB_PASSWORD}
-    url: jdbc:mariadb://localhost:3306/bravvo_mvp?useSSL=false&serverTimezone=UTC
-    username: root
-    password:
-    driver-class-name: org.mariadb.jdbc.Driver
+     url: ${DB_URL}
+     username: ${DB_USER}
+     password: ${DB_PASSWORD}
+    # url: jdbc:mariadb://localhost:3306/bravvo_mvp?useSSL=false&serverTimezone=UTC
+    # username: root
+    #password:
+     driver-class-name: org.mariadb.jdbc.Driver
 
   jpa:
     open-in-view: false
@@ -40,13 +40,13 @@ spring:
             enable: true
 
 server:
-  # port: ${PORT:8080}
-  port: 8080
+   port: ${PORT:8080}
+  # port: 8080
 
 app:
   jwt:
     issuer: bravvo-api
-    # secret: ${JWT_SECRET}
-    secret: n8qvQ2m9s3A1Zp9YxX6yYtR5Kx4K7nHk5e0y1E9Jm2b6QZc0V8F7D4LrWw==
+    secret: ${JWT_SECRET}
+    #secret: n8qvQ2m9s3A1Zp9YxX6yYtR5Kx4K7nHk5e0y1E9Jm2b6QZc0V8F7D4LrWw==
     access-token-minutes: 30
     refresh-token-days: 7
