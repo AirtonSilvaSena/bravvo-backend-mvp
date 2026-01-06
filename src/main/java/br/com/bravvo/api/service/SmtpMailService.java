@@ -28,7 +28,18 @@ public class SmtpMailService implements MailService {
             helper.setFrom(fromEmail);
             helper.setTo(toEmail);
             helper.setSubject("Confirmação de e-mail - Bravvo");
-            helper.setText("Seu código de confirmação é: " + code, false);
+            helper.setText(
+            	    "Bem-vindo ao Bravvo 👋\n\n" +
+            	    "Estamos felizes em ter você conosco.\n\n" +
+            	    "O Bravvo foi desenvolvido para simplificar a gestão do seu estabelecimento, " +
+            	    "centralizando agendamentos, equipe e atendimento em um único sistema.\n\n" +
+            	    "Para confirmar seu cadastro, utilize o código abaixo:\n\n" +
+            	    code + "\n\n" +
+            	    "O código é válido por alguns minutos.\n" +
+            	    "Caso você não tenha solicitado este acesso, basta desconsiderar este e-mail.\n\n" +
+            	    "— Equipe Bravvo",
+            	    false
+            	);
 
             mailSender.send(message);
         } catch (Exception e) {
