@@ -37,7 +37,7 @@ public class WebConfig implements WebMvcConfigurer {
                  * Observação:
                  * - Não é possível usar "*" quando allowCredentials(true) está ativo
                  */
-                .allowedOrigins("http://localhost:3000","http://192.168.1.104:3000", "https://frontend-bravvo.netlify.app/", "https://landingpage-bravvo.netlify.app")
+                .allowedOrigins("http://localhost:3000","http://192.168.1.104:3000", "https://frontend-bravvo.netlify.app/", "https://landingpage-bravvo.netlify.app", "http://100.104.191.40")
 
                 /**
                  * Define quais métodos HTTP são permitidos nas requisições CORS.
