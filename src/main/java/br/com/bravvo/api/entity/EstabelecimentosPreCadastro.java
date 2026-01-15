@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "estabelecimentos_pre_cadastros")
 public class EstabelecimentosPreCadastro {
-
+//te
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
