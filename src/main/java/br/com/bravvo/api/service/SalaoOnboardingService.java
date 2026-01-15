@@ -8,7 +8,7 @@ import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.enums.StatusAssinatura;
 import br.com.bravvo.api.exception.BusinessException;
-import br.com.bravvo.api.repository.SalaoPreCadastroRepository;
+import br.com.bravvo.api.repository.EstabelecimentoPreCadastroRepository;
 import br.com.bravvo.api.repository.SalaoRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.util.SlugUtils;
@@ -24,12 +24,12 @@ import java.time.LocalDateTime;
 public class SalaoOnboardingService {
 
 	private final SalaoRepository salaoRepository;
-	private final SalaoPreCadastroRepository preCadastroRepository;
+	private final EstabelecimentoPreCadastroRepository preCadastroRepository;
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final MailService mailService;
 
-	public SalaoOnboardingService(SalaoRepository salaoRepository, SalaoPreCadastroRepository preCadastroRepository,
+	public SalaoOnboardingService(SalaoRepository salaoRepository, EstabelecimentoPreCadastroRepository preCadastroRepository,
 			UserRepository userRepository, PasswordEncoder passwordEncoder, MailService mailService) {
 		this.salaoRepository = salaoRepository;
 		this.preCadastroRepository = preCadastroRepository;

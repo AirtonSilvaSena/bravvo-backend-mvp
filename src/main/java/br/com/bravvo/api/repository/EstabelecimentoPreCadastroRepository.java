@@ -5,7 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
 
-public interface SalaoPreCadastroRepository extends JpaRepository<EstabelecimentosPreCadastro, Long> {
+public interface EstabelecimentoPreCadastroRepository extends JpaRepository<EstabelecimentosPreCadastro, Long> {
     Optional<EstabelecimentosPreCadastro> findByEmail(String email);
     boolean existsByEmail(String email);
     boolean existsBySlug(String slug);

@@ -37,8 +37,8 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
     
-    @Column(name = "salao_id")
-    private Long salaoId;
+    @Column(name = "estabelecimento_id")
+    private Long estabelecimentoId;
     
     @Column(name = "email_verificado")
     private boolean emailVerificado;
@@ -123,11 +123,11 @@ public class User {
     }
     
     public Long getSalaoId() {
-        return salaoId;
+        return estabelecimentoId;
     }
 
-    public void setSalaoId(Long salaoId) {
-        this.salaoId = salaoId;
+    public void setSalaoId(Long estabelecimentoId) {
+        this.estabelecimentoId = estabelecimentoId;
     }
 
     public boolean isEmailVerificado() {
