@@ -2,8 +2,8 @@ package br.com.bravvo.api.service;
 
 import br.com.bravvo.api.dto.salao.SalaoConfirmEmailRequestDTO;
 import br.com.bravvo.api.dto.salao.SalaoPreRegisterRequestDTO;
-import br.com.bravvo.api.entity.Salao;
-import br.com.bravvo.api.entity.SalaoPreCadastro;
+import br.com.bravvo.api.entity.Estabelecimentos;
+import br.com.bravvo.api.entity.EstabelecimentosPreCadastro;
 import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.enums.StatusAssinatura;
@@ -71,7 +71,7 @@ public class SalaoOnboardingService {
 		String codigo = VerificationCodeUtils.generate6Digits();
 		String codigoHash = TokenHashUtils.sha256(codigo);
 
-		SalaoPreCadastro pre = new SalaoPreCadastro();
+		EstabelecimentosPreCadastro pre = new EstabelecimentosPreCadastro();
 		pre.setNome(dto.getNome().trim());
 		pre.setEmail(email);
 		pre.setTelefone(dto.getTelefone() != null ? dto.getTelefone().trim() : null);
@@ -93,7 +93,7 @@ public class SalaoOnboardingService {
 		String email = dto.getEmail().trim().toLowerCase();
 		String codigo = dto.getCodigo().trim();
 
-		SalaoPreCadastro pre = preCadastroRepository.findByEmail(email)
+		EstabelecimentosPreCadastro pre = preCadastroRepository.findByEmail(email)
 				.orElseThrow(() -> new BusinessException("Pré-cadastro não encontrado. Solicite um novo código."));
 
 		if (pre.getExpiresAt().isBefore(LocalDateTime.now())) {
@@ -124,7 +124,7 @@ public class SalaoOnboardingService {
 		}
 
 		// 1) Cria salão (trial começa aqui)
-		Salao salao = new Salao();
+		Estabelecimentos salao = new Estabelecimentos();
 		salao.setNome(pre.getNome());
 		salao.setSlug(pre.getSlug());
 		salao.setStatusAssinatura(StatusAssinatura.TRIAL);

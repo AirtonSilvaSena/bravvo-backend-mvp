@@ -5,8 +5,8 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "salao_pre_cadastros")
-public class SalaoPreCadastro {
+@Table(name = "estabelecimentos_pre_cadastros")
+public class EstabelecimentosPreCadastro {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
