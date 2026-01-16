@@ -1,10 +1,10 @@
-package br.com.bravvo.api.dto.salao;
+package br.com.bravvo.api.dto.estabelecimento;
 
-public class SalaoConfirmEmailResponseDTO {
+public class EstabelecimentoPreRegisterResponseDTO {
 	private boolean success = true;
 	private String message;
 
-	public SalaoConfirmEmailResponseDTO(String message) {
+	public EstabelecimentoPreRegisterResponseDTO(String message) {
 		this.message = message;
 	}
 

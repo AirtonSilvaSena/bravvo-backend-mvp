@@ -1,10 +1,10 @@
 package br.com.bravvo.api.controller;
 
-import br.com.bravvo.api.dto.salao.SalaoConfirmEmailRequestDTO;
-import br.com.bravvo.api.dto.salao.SalaoConfirmEmailResponseDTO;
-import br.com.bravvo.api.dto.salao.SalaoPreRegisterRequestDTO;
-import br.com.bravvo.api.dto.salao.SalaoPreRegisterResponseDTO;
-import br.com.bravvo.api.service.SalaoOnboardingService;
+import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoConfirmEmailRequestDTO;
+import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoConfirmEmailResponseDTO;
+import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoPreRegisterRequestDTO;
+import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoPreRegisterResponseDTO;
+import br.com.bravvo.api.service.EstabelecimentoOnboardingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -20,19 +20,19 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@Tag(name = "Onboarding Público - Salão", description = "Pré-cadastro e confirmação de e-mail para criação do salão (SaaS).")
+@Tag(name = "Onboarding Público - Estabelecimentos", description = "Pré-cadastro e confirmação de e-mail para criação do salão (SaaS).")
 @RestController
-@RequestMapping("/api/public/saloes")
-public class PublicSalaoOnboardingController {
+@RequestMapping("/api/public/establecimentos")
+public class PublicEstabelecimentoOnboardingController {
 
-    private final SalaoOnboardingService service;
+    private final EstabelecimentoOnboardingService service;
 
-    public PublicSalaoOnboardingController(SalaoOnboardingService service) {
+    public PublicEstabelecimentoOnboardingController(EstabelecimentoOnboardingService service) {
         this.service = service;
     }
 
     @Operation(
-            summary = "Pré-cadastro do salão (envia código por e-mail)",
+            summary = "Pré-cadastro do estabelecimento (envia código por e-mail)",
             description = """
                     Inicia o cadastro do salão (Admin), mas NÃO cria o salão nem o usuário ainda.
                     O sistema valida e-mail e slug, gera um código de confirmação (expira em ~15 min) e envia para o e-mail informado.
@@ -123,12 +123,12 @@ public class PublicSalaoOnboardingController {
                             )
                     )
             )
-            @RequestBody SalaoPreRegisterRequestDTO dto
+            @RequestBody EstabelecimentoPreRegisterRequestDTO dto
     ) {
         service.preRegister(dto);
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "data", new SalaoPreRegisterResponseDTO("Código enviado para o e-mail informado.")
+                "data", new EstabelecimentoPreRegisterResponseDTO("Código enviado para o e-mail informado.")
         ));
     }
 
@@ -224,12 +224,12 @@ public class PublicSalaoOnboardingController {
                             )
                     )
             )
-            @RequestBody SalaoConfirmEmailRequestDTO dto
+            @RequestBody EstabelecimentoConfirmEmailRequestDTO dto
     ) {
         service.confirmEmail(dto);
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "data", new SalaoConfirmEmailResponseDTO("E-mail confirmado. Salão criado com TRIAL de 14 dias.")
+                "data", new EstabelecimentoConfirmEmailResponseDTO("E-mail confirmado. Salão criado com TRIAL de 14 dias.")
         ));
     }
 }

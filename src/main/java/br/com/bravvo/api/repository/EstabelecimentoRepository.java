@@ -5,7 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
 
-public interface SalaoRepository extends JpaRepository<Estabelecimentos, Long> {
+public interface EstabelecimentoRepository extends JpaRepository<Estabelecimentos, Long> {
 	boolean existsBySlug(String slug);
 
 	Optional<Estabelecimentos> findBySlug(String slug);

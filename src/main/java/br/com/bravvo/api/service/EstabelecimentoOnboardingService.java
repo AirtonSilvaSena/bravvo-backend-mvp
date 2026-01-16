@@ -1,7 +1,7 @@
 package br.com.bravvo.api.service;
 
-import br.com.bravvo.api.dto.salao.SalaoConfirmEmailRequestDTO;
-import br.com.bravvo.api.dto.salao.SalaoPreRegisterRequestDTO;
+import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoConfirmEmailRequestDTO;
+import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoPreRegisterRequestDTO;
 import br.com.bravvo.api.entity.Estabelecimentos;
 import br.com.bravvo.api.entity.EstabelecimentosPreCadastro;
 import br.com.bravvo.api.entity.User;
@@ -9,7 +9,7 @@ import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.enums.StatusAssinatura;
 import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.repository.EstabelecimentoPreCadastroRepository;
-import br.com.bravvo.api.repository.SalaoRepository;
+import br.com.bravvo.api.repository.EstabelecimentoRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.util.SlugUtils;
 import br.com.bravvo.api.util.TokenHashUtils;
@@ -21,15 +21,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 @Service
-public class SalaoOnboardingService {
+public class EstabelecimentoOnboardingService {
 
-	private final SalaoRepository salaoRepository;
+	private final EstabelecimentoRepository salaoRepository;
 	private final EstabelecimentoPreCadastroRepository preCadastroRepository;
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final MailService mailService;
 
-	public SalaoOnboardingService(SalaoRepository salaoRepository, EstabelecimentoPreCadastroRepository preCadastroRepository,
+	public EstabelecimentoOnboardingService(EstabelecimentoRepository salaoRepository, EstabelecimentoPreCadastroRepository preCadastroRepository,
 			UserRepository userRepository, PasswordEncoder passwordEncoder, MailService mailService) {
 		this.salaoRepository = salaoRepository;
 		this.preCadastroRepository = preCadastroRepository;
@@ -39,7 +39,7 @@ public class SalaoOnboardingService {
 	}
 
 	@Transactional
-	public void preRegister(SalaoPreRegisterRequestDTO dto) {
+	public void preRegister(EstabelecimentoPreRegisterRequestDTO dto) {
 
 		String slug = SlugUtils.normalize(dto.getSlug());
 		if (!SlugUtils.isValid(slug)) {
@@ -73,6 +73,7 @@ public class SalaoOnboardingService {
 
 		EstabelecimentosPreCadastro pre = new EstabelecimentosPreCadastro();
 		pre.setNome(dto.getNome().trim());
+		pre.setRamoAtuacao(dto.getRamoAtuacao().trim());
 		pre.setEmail(email);
 		pre.setTelefone(dto.getTelefone() != null ? dto.getTelefone().trim() : null);
 		pre.setSenhaHash(senhaHash);
@@ -88,7 +89,7 @@ public class SalaoOnboardingService {
 	}
 
 	@Transactional
-	public void confirmEmail(SalaoConfirmEmailRequestDTO dto) {
+	public void confirmEmail(EstabelecimentoConfirmEmailRequestDTO dto) {
 
 		String email = dto.getEmail().trim().toLowerCase();
 		String codigo = dto.getCodigo().trim();

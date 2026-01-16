@@ -1,15 +1,19 @@
-package br.com.bravvo.api.dto.salao;
+package br.com.bravvo.api.dto.estabelecimento;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-public class SalaoPreRegisterRequestDTO {
+public class EstabelecimentoPreRegisterRequestDTO {
 
 	@NotBlank
 	@Size(max = 120)
 	private String nome;
-
+	
+	@NotBlank
+	@Size(max = 60)
+	private String ramoAtuacao;
+	
 	@NotBlank
 	@Email
 	@Size(max = 180)
@@ -33,7 +37,15 @@ public class SalaoPreRegisterRequestDTO {
 	public void setNome(String nome) {
 		this.nome = nome;
 	}
+	
+	public String getRamoAtuacao() {
+		return ramoAtuacao;
+	}
 
+	public void setRamoAtuacao(String ramoAtuacao) {
+		this.ramoAtuacao = ramoAtuacao;
+	}
+	
 	public String getEmail() {
 		return email;
 	}
