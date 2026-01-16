@@ -22,7 +22,7 @@ import java.util.Map;
 
 @Tag(name = "Onboarding Público - Estabelecimentos", description = "Pré-cadastro e confirmação de e-mail para criação do salão (SaaS).")
 @RestController
-@RequestMapping("/api/public/establecimentos")
+@RequestMapping("/api/public/estabelecimentos")
 public class PublicEstabelecimentoOnboardingController {
 
     private final EstabelecimentoOnboardingService service;
