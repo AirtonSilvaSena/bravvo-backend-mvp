@@ -125,13 +125,14 @@ public class EstabelecimentoOnboardingService {
 		}
 
 		// 1) Cria salão (trial começa aqui)
-		Estabelecimentos salao = new Estabelecimentos();
-		salao.setNome(pre.getNome());
-		salao.setSlug(pre.getSlug());
-		salao.setStatusAssinatura(StatusAssinatura.TRIAL);
-		salao.setTrialEndsAt(LocalDateTime.now().plusDays(14));
+		Estabelecimentos estabelecimento = new Estabelecimentos();
+		estabelecimento.setNome(pre.getNome());
+		estabelecimento.setRamoAtuacao(pre.getRamoAtuacao());
+		estabelecimento.setSlug(pre.getSlug());
+		estabelecimento.setStatusAssinatura(StatusAssinatura.TRIAL);
+		estabelecimento.setTrialEndsAt(LocalDateTime.now().plusDays(14));
 
-		salaoRepository.save(salao);
+		salaoRepository.save(estabelecimento);
 
 		// 2) Cria user ADMIN
 		User admin = new User();
@@ -144,13 +145,13 @@ public class EstabelecimentoOnboardingService {
 
 		// campos novos no users:
 		admin.setEmailVerificado(true);
-		admin.setSalaoId(salao.getId());
+		admin.setSalaoId(estabelecimento.getId());
 
 		userRepository.save(admin);
 
 		// 3) Define owner do salão
-		salao.setOwnerUser(admin);
-		salaoRepository.save(salao);
+		estabelecimento.setOwnerUser(admin);
+		salaoRepository.save(estabelecimento);
 
 		// 4) Apaga pré-cadastro
 		preCadastroRepository.deleteByEmail(email);
