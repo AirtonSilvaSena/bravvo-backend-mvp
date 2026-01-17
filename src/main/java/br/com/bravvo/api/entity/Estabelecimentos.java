@@ -16,9 +16,28 @@ public class Estabelecimentos {
 	@Column(name = "nome", nullable = false, length = 120)
 	private String nome;
 	
+	@Column(name = "telefone", nullable = true, length = 100)
+	private String telefone;
+	
 	@Column(name = "ramo_atuacao", length = 60)
 	private String ramoAtuacao;
 
+	@Column(name = "endereco", nullable = true, length = 255)
+	private String endereco;
+	
+	@Column(name = "numero", nullable = true, length = 20)
+	private String numero;
+	
+	@Column(name = "bairro", nullable = true, length = 100)
+	private String bairro;
+	
+	@Column(name = "estado", nullable = true, length = 100)
+	private String estado;
+	
+	@Column(name = "cidade", nullable = true, length = 100)
+	private String cidade;
+	
+	
 	@Column(name = "slug", nullable = false, length = 60, unique = true)
 	private String slug;
 
@@ -100,4 +119,53 @@ public class Estabelecimentos {
 	public LocalDateTime getUpdatedAt() {
 		return updatedAt;
 	}
+	
+	public String getTelefone() {
+		return telefone;
+	}
+
+	public void setTelefone(String telefone) {
+		this.telefone = telefone;
+	}
+
+	public String getEndereco() {
+		return endereco;
+	}
+
+	public void setEndereco(String endereco) {
+		this.endereco = endereco;
+	}
+
+	public String getNumero() {
+		return numero;
+	}
+
+	public void setNumero(String numero) {
+		this.numero = numero;
+	}
+
+	public String getBairro() {
+		return bairro;
+	}
+
+	public void setBairro(String bairro) {
+		this.bairro = bairro;
+	}
+
+	public String getEstado() {
+		return estado;
+	}
+
+	public void setEstado(String estado) {
+		this.estado = estado;
+	}
+
+	public String getCidade() {
+		return cidade;
+	}
+
+	public void setCidade(String cidade) {
+		this.cidade = cidade;
+	}
+
 }

@@ -9,4 +9,6 @@ public interface EstabelecimentoRepository extends JpaRepository<Estabelecimento
 	boolean existsBySlug(String slug);
 
 	Optional<Estabelecimentos> findBySlug(String slug);
+	
+	Optional<Estabelecimentos> findByOwnerUserId(Long ownerUserId);
 }
