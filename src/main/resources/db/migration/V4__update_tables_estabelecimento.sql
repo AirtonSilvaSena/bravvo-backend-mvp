@@ -15,3 +15,5 @@ ALTER TABLE `estabelecimentos`
 ALTER TABLE `estabelecimentos_pre_cadastros`
   ADD COLUMN IF NOT EXISTS `ramo_atuacao` varchar(60) NOT NULL
   AFTER `nome`;
+  
+
