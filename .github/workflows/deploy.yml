@@ -1,4 +1,4 @@
-name: Build and Deploy (Enterprise)
+name: Build e Deploy Automático (Bravvo Produção)
 
 on:
   push:
@@ -9,27 +9,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build-e-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout
+      - name: 📥 Checkout do código
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      - name: 🏗️ Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
+      - name: 🔐 Login no GHCR (GitHub Container Registry)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Docker image
+      - name: 🐳 Buildar e Publicar imagem Docker
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -38,14 +38,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Debug reachability
+      - name: 🌐 Testar conectividade SSH (porta 22)
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
-          echo "Testing TCP 22 on $SSH_HOST..."
+          echo "Testando conexão TCP na porta 22 em $SSH_HOST..."
           nc -vz "$SSH_HOST" 22
 
-      - name: Deploy via SSH (native)
+      - name: 🚀 Deploy automático via SSH
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -53,15 +53,20 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Criando diretório SSH..."
           mkdir -p ~/.ssh
+
+          echo "Gravando chave privada..."
           printf "%s" "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          # valida que a chave é legível
+          echo "Validando chave..."
           ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
 
+          echo "Adicionando host à lista segura..."
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
+          echo "Conectando ao servidor e executando deploy..."
           ssh -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
