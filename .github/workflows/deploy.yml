@@ -1,67 +1,74 @@
-name: Build and Deploy (Enterprise)
+name: Build e Deploy Automático (Bravvo Produção)
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: ["master", "main"]
+
+concurrency:
+  group: bravvo-deploy
+  cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build-e-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout
+      - name: 📥 Checkout do código
         uses: actions/checkout@v4
 
-      - name: Login to GHCR
+      - name: 🏗️ Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login no GHCR (GitHub Container Registry)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Docker image
+      - name: 🐳 Buildar e Publicar imagem Docker
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ghcr.io/airtonsilvasena/bravvo-backend-mvp:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-
-      # (Opcional, mas recomendo) Debug pra provar que o runner alcança o servidor
-      - name: Debug reachability
-        run: |
-          tailscale status || true
-          echo "Testing TCP 22..."
-          nc -vz 100.111.221.48 22
-
-      - name: Deploy via SSH (native)
+      - name: 🌐 Testar conectividade SSH (porta 22)
         env:
-          SSH_HOST: 100.111.221.48
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_KEY:  ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
-          set -e
+          echo "Testando conexão TCP na porta 22 em $SSH_HOST..."
+          nc -vz "$SSH_HOST" 22
 
-          # cria arquivo da chave
+      - name: 🚀 Deploy automático via SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+
+          echo "Criando diretório SSH..."
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
 
-          # evita prompt de host key
+          echo "Gravando chave privada..."
+          printf "%s" "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          echo "Validando chave..."
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
+
+          echo "Adicionando host à lista segura..."
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-          # executa deploy no servidor
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" << 'EOF'
-            set -e
-            cd /opt/bravvo/infra
-            bash ./deploy-api.sh
-            echo "---- last api logs ----"
-            docker logs --tail 80 bravvo-api || true
-          EOF
+          echo "Conectando ao servidor e executando deploy..."
+          ssh -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "cd /opt/bravvo/infra && bash ./deploy-api.sh && docker logs --tail 120 bravvo-api || true"
