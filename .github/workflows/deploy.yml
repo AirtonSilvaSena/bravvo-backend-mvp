@@ -2,7 +2,7 @@ name: Build and Deploy (Enterprise)
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: ["master", "main"]
 
 concurrency:
   group: bravvo-deploy
@@ -38,7 +38,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Debug simples (opcional)
       - name: Debug reachability
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -50,33 +49,30 @@ jobs:
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_KEY:  ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
 
           mkdir -p ~/.ssh
-
-          # IMPORTANTÍSSIMO: printf evita quebrar a chave (echo pode ferrar \r\n)
           printf "%s" "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          # Known hosts
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-          # Teste rápido da conexão (sem shell interativo)
+          # Teste rápido da conexão
           ssh -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" "echo SSH_OK"
 
-          # Deploy
+          # Deploy (note o EOF alinhado na coluna 1 do bloco, sem espaços antes)
           ssh -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" << 'EOF'
-              set -euo pipefail
-              cd /opt/bravvo/infra
-              bash ./deploy-api.sh
-              echo "---- last api logs ----"
-              docker logs --tail 120 bravvo-api || true
+set -euo pipefail
+cd /opt/bravvo/infra
+bash ./deploy-api.sh
+echo "---- last api logs ----"
+docker logs --tail 120 bravvo-api || true
 EOF
