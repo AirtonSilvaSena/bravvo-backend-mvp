@@ -2,8 +2,8 @@
 
 
 -- Copiando estrutura do banco de dados para bravvo_mvp
-CREATE DATABASE IF NOT EXISTS `bravvo_mvp` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
-USE `bravvo_mvp`;
+CREATE DATABASE IF NOT EXISTS `bravvo` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
+USE `bravvo`;
 
 -- Exportação de dados foi desmarcado.
 -- a
