@@ -4,6 +4,10 @@ on:
   push:
     branches: [ "master", "main" ]
 
+concurrency:
+  group: bravvo-deploy
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -14,6 +18,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -28,8 +35,10 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/airtonsilvasena/bravvo-backend-mvp:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      # Debug simples sem tailscale (opcional)
+      # Debug simples (opcional)
       - name: Debug reachability
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -43,18 +52,31 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_KEY:  ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          set -e
+          set -euo pipefail
 
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+
+          # IMPORTANTÍSSIMO: printf evita quebrar a chave (echo pode ferrar \r\n)
+          printf "%s" "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
+          # Known hosts
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" << 'EOF'
-            set -e
-            cd /opt/bravvo/infra
-            bash ./deploy-api.sh
-            echo "---- last api logs ----"
-            docker logs --tail 120 bravvo-api || true
-          EOF
+          # Teste rápido da conexão (sem shell interativo)
+          ssh -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "echo SSH_OK"
+
+          # Deploy
+          ssh -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" << 'EOF'
+              set -euo pipefail
+              cd /opt/bravvo/infra
+              bash ./deploy-api.sh
+              echo "---- last api logs ----"
+              docker logs --tail 120 bravvo-api || true
+EOF
