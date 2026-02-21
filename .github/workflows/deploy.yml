@@ -29,39 +29,32 @@ jobs:
           push: true
           tags: ghcr.io/airtonsilvasena/bravvo-backend-mvp:latest
 
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-
-      # (Opcional, mas recomendo) Debug pra provar que o runner alcança o servidor
+      # Debug simples sem tailscale (opcional)
       - name: Debug reachability
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
-          tailscale status || true
-          echo "Testing TCP 22..."
-          nc -vz 100.111.221.48 22
+          echo "Testing TCP 22 on $SSH_HOST..."
+          nc -vz "$SSH_HOST" 22
 
       - name: Deploy via SSH (native)
         env:
-          SSH_HOST: 100.111.221.48
+          SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_KEY:  ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -e
 
-          # cria arquivo da chave
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
-          # evita prompt de host key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-          # executa deploy no servidor
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" << 'EOF'
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" << 'EOF'
             set -e
             cd /opt/bravvo/infra
             bash ./deploy-api.sh
             echo "---- last api logs ----"
-            docker logs --tail 80 bravvo-api || true
+            docker logs --tail 120 bravvo-api || true
           EOF
