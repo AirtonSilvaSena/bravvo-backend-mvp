@@ -29,8 +29,13 @@ public class EstabelecimentoOnboardingService {
 	private final PasswordEncoder passwordEncoder;
 	private final MailService mailService;
 
-	public EstabelecimentoOnboardingService(EstabelecimentoRepository salaoRepository, EstabelecimentoPreCadastroRepository preCadastroRepository,
-			UserRepository userRepository, PasswordEncoder passwordEncoder, MailService mailService) {
+	public EstabelecimentoOnboardingService(
+			EstabelecimentoRepository salaoRepository,
+			EstabelecimentoPreCadastroRepository preCadastroRepository,
+			UserRepository userRepository,
+			PasswordEncoder passwordEncoder,
+			MailService mailService
+	) {
 		this.salaoRepository = salaoRepository;
 		this.preCadastroRepository = preCadastroRepository;
 		this.userRepository = userRepository;
@@ -38,8 +43,19 @@ public class EstabelecimentoOnboardingService {
 		this.mailService = mailService;
 	}
 
-	@Transactional
+	/**
+	 * IMPORTANTE:
+	 * - Salva no banco dentro de transação (método abaixo).
+	 * - Envia e-mail FORA da transação para evitar lock no banco quando o envio falhar/demorar.
+	 */
 	public void preRegister(EstabelecimentoPreRegisterRequestDTO dto) {
+		PreRegisterResult result = preRegisterTransactional(dto);
+		// Envia e-mail fora do @Transactional
+		mailService.sendVerificationCode(result.email, result.codigo);
+	}
+
+	@Transactional
+	protected PreRegisterResult preRegisterTransactional(EstabelecimentoPreRegisterRequestDTO dto) {
 
 		String slug = SlugUtils.normalize(dto.getSlug());
 		if (!SlugUtils.isValid(slug)) {
@@ -84,8 +100,7 @@ public class EstabelecimentoOnboardingService {
 
 		preCadastroRepository.save(pre);
 
-		// Envia email (SMTP)
-		mailService.sendVerificationCode(email, codigo);
+		return new PreRegisterResult(email, codigo);
 	}
 
 	@Transactional
@@ -155,5 +170,15 @@ public class EstabelecimentoOnboardingService {
 
 		// 4) Apaga pré-cadastro
 		preCadastroRepository.deleteByEmail(email);
+	}
+
+	private static class PreRegisterResult {
+		final String email;
+		final String codigo;
+
+		private PreRegisterResult(String email, String codigo) {
+			this.email = email;
+			this.codigo = codigo;
+		}
 	}
 }
