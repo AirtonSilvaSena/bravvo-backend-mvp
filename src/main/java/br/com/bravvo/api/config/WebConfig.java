@@ -44,7 +44,11 @@ public class WebConfig implements WebMvcConfigurer {
                 				"http://100.104.191.40:3000",
                 				"http://192.168.1.105:3000",
                 				"https://frontend-bravvoo-git-main-airton-senas-projects.vercel.app/",
-                				"https://frontend-bravvoo-git-main-airton-senas-projects.vercel.app:3000/")
+                				"https://frontend-bravvoo-git-main-airton-senas-projects.vercel.app:3000/",
+                				"https://frontend-bravvoo.vercel.app/",
+                				"https://frontend-bravvoo.vercel.app:3000/",
+                				"https://frontend-bravvoo.vercel.app",
+                				"https://frontend-bravvoo.vercel.app:3000")
 
                 /**
                  * Define quais métodos HTTP são permitidos nas requisições CORS.
