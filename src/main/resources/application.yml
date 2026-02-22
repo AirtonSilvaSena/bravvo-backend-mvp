@@ -1,12 +1,9 @@
 spring:
   datasource:
-     url: ${DB_URL}
-     username: ${DB_USER}
-     password: ${DB_PASSWORD}
-    # url: jdbc:mariadb://localhost:3306/bravvo_mvp?useSSL=false&serverTimezone=UTC
-    # username: root
-    #password:
-     driver-class-name: org.mariadb.jdbc.Driver
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
 
   jpa:
     open-in-view: false
@@ -23,30 +20,32 @@ spring:
     baseline-on-migrate: true
     locations: classpath:db/migration
 
-  mail:
-    # host: ${MAIL_HOST}
-    # port: ${MAIL_PORT}
-    # username: ${MAIL_USER}
-    # password: ${MAIL_PASS}
-    host: smtp.gmail.com
-    port: 587
-    username: bravvoapp@gmail.com
-    password: iwgi qjhi takf buev  
-    properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
+# SMTP desativado (DO bloqueia 587). Usaremos Gmail API (HTTPS/443).
+# spring:
+#   mail:
+#     host: smtp.gmail.com
+#     port: 587
+#     username: ${MAIL_USER}
+#     password: ${MAIL_PASS}
+#     properties:
+#       mail:
+#         smtp:
+#           auth: true
+#           starttls:
+#             enable: true
+
+gmail:
+  client-id: ${GMAIL_CLIENT_ID}
+  client-secret: ${GMAIL_CLIENT_SECRET}
+  refresh-token: ${GMAIL_REFRESH_TOKEN}
+  from: ${GMAIL_FROM:bravvoapp@gmail.com}
 
 server:
-   port: ${PORT:8080}
-  # port: 8080
+  port: ${PORT:8080}
 
 app:
   jwt:
     issuer: bravvo-api
     secret: ${JWT_SECRET}
-    #secret: n8qvQ2m9s3A1Zp9YxX6yYtR5Kx4K7nHk5e0y1E9Jm2b6QZc0V8F7D4LrWw==
     access-token-minutes: 30
     refresh-token-days: 7
