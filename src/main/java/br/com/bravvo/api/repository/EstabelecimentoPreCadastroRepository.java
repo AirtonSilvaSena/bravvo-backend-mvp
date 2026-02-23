@@ -7,6 +7,8 @@ import java.util.Optional;
 
 public interface EstabelecimentoPreCadastroRepository extends JpaRepository<EstabelecimentosPreCadastro, Long> {
     Optional<EstabelecimentosPreCadastro> findByEmail(String email);
+    Optional<EstabelecimentosPreCadastro> findBySlug(String slug); 
+    
     boolean existsByEmail(String email);
     boolean existsBySlug(String slug);
     void deleteByEmail(String email);

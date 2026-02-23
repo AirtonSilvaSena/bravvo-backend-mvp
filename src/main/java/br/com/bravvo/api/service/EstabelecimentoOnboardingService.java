@@ -42,66 +42,141 @@ public class EstabelecimentoOnboardingService {
 		this.passwordEncoder = passwordEncoder;
 		this.mailService = mailService;
 	}
-
-	/**
-	 * IMPORTANTE:
-	 * - Salva no banco dentro de transação (método abaixo).
-	 * - Envia e-mail FORA da transação para evitar lock no banco quando o envio falhar/demorar.
-	 */
+	
 	public void preRegister(EstabelecimentoPreRegisterRequestDTO dto) {
-		PreRegisterResult result = preRegisterTransactional(dto);
-		// Envia e-mail fora do @Transactional
-		mailService.sendVerificationCode(result.email, result.codigo);
+	    PreRegisterResult result = preRegisterTransactional(dto);
+	    mailService.sendVerificationCode(result.email, result.codigo);
 	}
 
 	@Transactional
 	protected PreRegisterResult preRegisterTransactional(EstabelecimentoPreRegisterRequestDTO dto) {
 
-		String slug = SlugUtils.normalize(dto.getSlug());
-		if (!SlugUtils.isValid(slug)) {
-			throw new BusinessException("Slug inválido. Use letras minúsculas, números e hífen.");
-		}
+	    String slug = SlugUtils.normalize(dto.getSlug());
+	    if (!SlugUtils.isValid(slug)) {
+	        throw new BusinessException("Slug inválido. Use letras minúsculas, números e hífen.");
+	    }
 
-		String email = dto.getEmail().trim().toLowerCase();
+	    String email = dto.getEmail().trim().toLowerCase();
 
-		// Já existe usuário com esse e-mail?
-		if (userRepository.existsByEmail(email)) {
-			throw new BusinessException("E-mail já cadastrado.");
-		}
+	    if (userRepository.existsByEmail(email)) {
+	        throw new BusinessException("E-mail já cadastrado.");
+	    }
 
-		// Slug já existe em saloes (salão já criado)
-		if (salaoRepository.existsBySlug(slug)) {
-			throw new BusinessException("Slug já está em uso.");
-		}
+	    if (salaoRepository.existsBySlug(slug)) {
+	        throw new BusinessException("Slug já está em uso.");
+	    }
 
-		// Pré-cadastro pendente com mesmo email/slug
-		if (preCadastroRepository.existsByEmail(email)) {
-			throw new BusinessException("Já existe um pré-cadastro pendente para este e-mail. Confirme o código.");
-		}
-		if (preCadastroRepository.existsBySlug(slug)) {
-			throw new BusinessException("Slug já está em uso (pré-cadastro pendente).");
-		}
+	    // gera novo código SEMPRE (para sobrescrever)
+	    String codigo = VerificationCodeUtils.generate6Digits();
+	    String codigoHash = TokenHashUtils.sha256(codigo);
 
-		// Cria pré-cadastro
-		String senhaHash = passwordEncoder.encode(dto.getSenha());
-		String codigo = VerificationCodeUtils.generate6Digits();
-		String codigoHash = TokenHashUtils.sha256(codigo);
+	    // tenta pegar pré-cadastro existente pelo email
+	    EstabelecimentosPreCadastro pre = preCadastroRepository.findByEmail(email).orElse(null);
 
-		EstabelecimentosPreCadastro pre = new EstabelecimentosPreCadastro();
-		pre.setNome(dto.getNome().trim());
-		pre.setRamoAtuacao(dto.getRamoAtuacao().trim());
-		pre.setEmail(email);
-		pre.setTelefone(dto.getTelefone() != null ? dto.getTelefone().trim() : null);
-		pre.setSenhaHash(senhaHash);
-		pre.setSlug(slug);
-		pre.setCodigoHash(codigoHash);
-		pre.setExpiresAt(LocalDateTime.now().plusMinutes(15));
-		pre.setAttempts(0);
+	    // se não tem por email, valida slug pendente (não pode ser de outro email)
+	    if (pre == null) {
+	        var preBySlug = preCadastroRepository.findBySlug(slug).orElse(null);
+	        if (preBySlug != null) {
+	            // slug já reservado por outro pré-cadastro
+	            throw new BusinessException("Slug já está em uso (pré-cadastro pendente).");
+	        }
 
-		preCadastroRepository.save(pre);
+	        // cria novo
+	        pre = new EstabelecimentosPreCadastro();
+	        pre.setEmail(email);
+	        pre.setAttempts(0);
+	    } else {
+	        // já existe pré-cadastro para esse email -> vamos sobrescrever código e renovar prazo
+	        // se o slug mudou, precisamos validar se não está reservado por outro
+	        if (!slug.equals(pre.getSlug())) {
+	            var preBySlug = preCadastroRepository.findBySlug(slug).orElse(null);
+	            if (preBySlug != null && !preBySlug.getId().equals(pre.getId())) {
+	                throw new BusinessException("Slug já está em uso (pré-cadastro pendente).");
+	            }
+	        }
 
-		return new PreRegisterResult(email, codigo);
+	        // opcional: resetar tentativas ao reenviar
+	        pre.setAttempts(0);
+	    }
+
+	    // atualiza/copia dados (mesmo no resend, para manter o registro coerente)
+	    pre.setNome(dto.getNome().trim());
+	    pre.setRamoAtuacao(dto.getRamoAtuacao().trim());
+	    pre.setTelefone(dto.getTelefone() != null ? dto.getTelefone().trim() : null);
+	    pre.setSlug(slug);
+
+	    // senha: você pode decidir se sobrescreve sempre ou só se estiver vazio.
+	    // Aqui mantive sobrescrevendo (mínima surpresa pro usuário que reenvia).
+	    String senhaHash = passwordEncoder.encode(dto.getSenha());
+	    pre.setSenhaHash(senhaHash);
+
+	    // sobrescreve código e expiração
+	    pre.setCodigoHash(codigoHash);
+	    pre.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+
+	    preCadastroRepository.save(pre);
+
+	    return new PreRegisterResult(email, codigo);
 	}
+//	/**
+//	 * IMPORTANTE:
+//	 * - Salva no banco dentro de transação (método abaixo).
+//	 * - Envia e-mail FORA da transação para evitar lock no banco quando o envio falhar/demorar.
+//	 */
+//	public void preRegister(EstabelecimentoPreRegisterRequestDTO dto) {
+//		PreRegisterResult result = preRegisterTransactional(dto);
+//		// Envia e-mail fora do @Transactional
+//		mailService.sendVerificationCode(result.email, result.codigo);
+//	}
+//
+//	@Transactional
+//	protected PreRegisterResult preRegisterTransactional(EstabelecimentoPreRegisterRequestDTO dto) {
+//
+//		String slug = SlugUtils.normalize(dto.getSlug());
+//		if (!SlugUtils.isValid(slug)) {
+//			throw new BusinessException("Slug inválido. Use letras minúsculas, números e hífen.");
+//		}
+//
+//		String email = dto.getEmail().trim().toLowerCase();
+//
+//		// Já existe usuário com esse e-mail?
+//		if (userRepository.existsByEmail(email)) {
+//			throw new BusinessException("E-mail já cadastrado.");
+//		}
+//
+//		// Slug já existe em saloes (salão já criado)
+//		if (salaoRepository.existsBySlug(slug)) {
+//			throw new BusinessException("Slug já está em uso.");
+//		}
+//
+//		// Pré-cadastro pendente com mesmo email/slug
+//		if (preCadastroRepository.existsByEmail(email)) {
+//			throw new BusinessException("Já existe um pré-cadastro pendente para este e-mail. Confirme o código.");
+//		}
+//		if (preCadastroRepository.existsBySlug(slug)) {
+//			throw new BusinessException("Slug já está em uso (pré-cadastro pendente).");
+//		}
+//
+//		// Cria pré-cadastro
+//		String senhaHash = passwordEncoder.encode(dto.getSenha());
+//		String codigo = VerificationCodeUtils.generate6Digits();
+//		String codigoHash = TokenHashUtils.sha256(codigo);
+//
+//		EstabelecimentosPreCadastro pre = new EstabelecimentosPreCadastro();
+//		pre.setNome(dto.getNome().trim());
+//		pre.setRamoAtuacao(dto.getRamoAtuacao().trim());
+//		pre.setEmail(email);
+//		pre.setTelefone(dto.getTelefone() != null ? dto.getTelefone().trim() : null);
+//		pre.setSenhaHash(senhaHash);
+//		pre.setSlug(slug);
+//		pre.setCodigoHash(codigoHash);
+//		pre.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+//		pre.setAttempts(0);
+//
+//		preCadastroRepository.save(pre);
+//
+//		return new PreRegisterResult(email, codigo);
+//	}
 
 	@Transactional
 	public void confirmEmail(EstabelecimentoConfirmEmailRequestDTO dto) {
