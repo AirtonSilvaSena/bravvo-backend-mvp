@@ -41,38 +41,66 @@ public class AuthService {
 		this.jwtService = jwtService;
 	}
 
-	/**
-	 * LOGIN - valida credenciais - gera access token (JWT) - gera refresh token -
-	 * persiste refresh token (hash)
-	 */
-	public AuthResponseDTO login(String email, String senha) {
+	public AuthResponseDTO login(String login, String senha) {
 
-		User user = userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
+	    if (login == null || login.isBlank()) {
+	        throw new RuntimeException("Credenciais inválidas.");
+	    }
 
-		if (Boolean.FALSE.equals(user.getAtivo())) {
-			throw new RuntimeException("Usuário inativo.");
-		}
+	    String loginTrim = login.trim();
 
-		if (!passwordEncoder.matches(senha, user.getSenhaHash())) {
-			throw new RuntimeException("Credenciais inválidas.");
-		}
+	    User user;
 
-		// Access token (JWT)
-		String accessToken = jwtService.generateAccessToken(user);
+	    if (looksLikeEmail(loginTrim)) {
+	        // ADMIN loga com EMAIL
+	        String email = loginTrim.toLowerCase();
+	        user = userRepository.findByEmail(email)
+	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
 
-		// Refresh token (RAW + HASH)
-		String refreshRaw = generateSecureToken();
-		String refreshHash = TokenHashUtils.sha256(refreshRaw);
+	        if (user.getPerfil() != PerfilUser.ADMIN) {
+	            throw new RuntimeException("Credenciais inválidas.");
+	        }
+	    } else {
+	        // NÃO-ADMIN loga com TELEFONE
+	        String telefone = normalizeTelefone(loginTrim);
+	        user = userRepository.findByTelefone(telefone)
+	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
 
-		RefreshToken rt = new RefreshToken();
-		rt.setUser(user);
-		rt.setTokenHash(refreshHash);
-		rt.setRevoked(false);
-		rt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
+	        if (user.getPerfil() == PerfilUser.ADMIN) {
+	            throw new RuntimeException("Credenciais inválidas.");
+	        }
+	    }
 
-		refreshTokenRepository.save(rt);
+	    if (Boolean.FALSE.equals(user.getAtivo())) {
+	        throw new RuntimeException("Usuário inativo.");
+	    }
 
-		return new AuthResponseDTO(accessToken, refreshRaw, jwtService.getAccessTokenExpiresInSeconds());
+	    if (!passwordEncoder.matches(senha, user.getSenhaHash())) {
+	        throw new RuntimeException("Credenciais inválidas.");
+	    }
+
+	    String accessToken = jwtService.generateAccessToken(user);
+
+	    String refreshRaw = generateSecureToken();
+	    String refreshHash = TokenHashUtils.sha256(refreshRaw);
+
+	    RefreshToken rt = new RefreshToken();
+	    rt.setUser(user);
+	    rt.setTokenHash(refreshHash);
+	    rt.setRevoked(false);
+	    rt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
+
+	    refreshTokenRepository.save(rt);
+
+	    return new AuthResponseDTO(accessToken, refreshRaw, jwtService.getAccessTokenExpiresInSeconds());
+	}
+
+	private boolean looksLikeEmail(String s) {
+	    return s.contains("@");
+	}
+
+	private String normalizeTelefone(String s) {
+	    return s.replaceAll("\\D", "");
 	}
 
 	/**

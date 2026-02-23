@@ -38,7 +38,7 @@ public class AuthController {
 			@ApiResponse(responseCode = "403", description = "Usuário inativo") })
 	@PostMapping("/login")
 	public ResponseEntity<AuthResponseDTO> login(@Valid @RequestBody LoginRequestDTO dto) {
-		return ResponseEntity.ok(authService.login(dto.getEmail(), dto.getSenha()));
+	    return ResponseEntity.ok(authService.login(dto.getLogin(), dto.getSenha()));
 	}
 
 	/**

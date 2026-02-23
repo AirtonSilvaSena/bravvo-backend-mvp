@@ -57,4 +57,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 			      )
 			""")
 	Page<User> searchAtivosByPerfilAndQ(@Param("perfil") PerfilUser perfil, @Param("q") String q, Pageable pageable);
+	
+	Optional<User> findByTelefone(String telefone);
+	boolean existsByTelefone(String telefone); 
 }
