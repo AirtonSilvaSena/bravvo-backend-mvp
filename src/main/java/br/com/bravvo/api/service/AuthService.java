@@ -48,11 +48,10 @@ public class AuthService {
 	    }
 
 	    String loginTrim = login.trim();
-
 	    User user;
 
 	    if (looksLikeEmail(loginTrim)) {
-	        // ADMIN loga com EMAIL
+	        // EMAIL -> somente ADMIN
 	        String email = loginTrim.toLowerCase();
 	        user = userRepository.findByEmail(email)
 	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
@@ -60,15 +59,21 @@ public class AuthService {
 	        if (user.getPerfil() != PerfilUser.ADMIN) {
 	            throw new RuntimeException("Credenciais inválidas.");
 	        }
-	    } else {
-	        // NÃO-ADMIN loga com TELEFONE
-	        String telefone = normalizeTelefone(loginTrim);
-	        user = userRepository.findByTelefone(telefone)
-	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
 
-	        if (user.getPerfil() == PerfilUser.ADMIN) {
+	    } else {
+	        // TELEFONE -> somente FUNCIONARIO
+	        String telefone = normalizeTelefone(loginTrim);
+
+	        long count = userRepository.countByTelefoneAndPerfil(telefone, PerfilUser.FUNCIONARIO);
+	        if (count == 0) {
 	            throw new RuntimeException("Credenciais inválidas.");
 	        }
+	        if (count > 1) {
+	            throw new RuntimeException("Telefone duplicado para funcionário. Contate o suporte.");
+	        }
+
+	        user = userRepository.findByTelefoneAndPerfil(telefone, PerfilUser.FUNCIONARIO)
+	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
 	    }
 
 	    if (Boolean.FALSE.equals(user.getAtivo())) {
@@ -102,7 +107,6 @@ public class AuthService {
 	private String normalizeTelefone(String s) {
 	    return s.replaceAll("\\D", "");
 	}
-
 	/**
 	 * REFRESH - valida refresh token (existe, não revogado, não expirado) - revoga
 	 * o atual - cria um novo refresh (rotação) - gera novo access token
