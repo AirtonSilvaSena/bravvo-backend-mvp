@@ -12,4 +12,7 @@ public interface EstabelecimentoPreCadastroRepository extends JpaRepository<Esta
     boolean existsByEmail(String email);
     boolean existsBySlug(String slug);
     void deleteByEmail(String email);
+    
+    Optional<EstabelecimentosPreCadastro> findByTelefone(String telefone);
+    boolean existsByTelefone(String telefone); // opcional
 }
