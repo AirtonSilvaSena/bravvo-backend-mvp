@@ -58,7 +58,52 @@ public class Estabelecimentos {
 
 	@Column(name = "updated_at", insertable = false, updatable = false)
 	private LocalDateTime updatedAt;
+	
+	@Column(name = "logo_key", length = 255)
+	private String logoKey;
 
+	@Column(name = "logo_mime_type", length = 100)
+	private String logoMimeType;
+
+	@Column(name = "logo_size_bytes")
+	private Long logoSizeBytes;
+
+	@Column(name = "logo_updated_at")
+	private LocalDateTime logoUpdatedAt;
+	
+	public String getLogoKey() {
+	    return logoKey;
+	}
+
+	public void setLogoKey(String logoKey) {
+	    this.logoKey = logoKey;
+	}
+
+	public String getLogoMimeType() {
+	    return logoMimeType;
+	}
+
+	public void setLogoMimeType(String logoMimeType) {
+	    this.logoMimeType = logoMimeType;
+	}
+
+	public Long getLogoSizeBytes() {
+	    return logoSizeBytes;
+	}
+
+	public void setLogoSizeBytes(Long logoSizeBytes) {
+	    this.logoSizeBytes = logoSizeBytes;
+	}
+
+	public LocalDateTime getLogoUpdatedAt() {
+	    return logoUpdatedAt;
+	}
+
+	public void setLogoUpdatedAt(LocalDateTime logoUpdatedAt) {
+	    this.logoUpdatedAt = logoUpdatedAt;
+	}
+	
+	
 	// getters/setters
 	public Long getId() {
 		return id;

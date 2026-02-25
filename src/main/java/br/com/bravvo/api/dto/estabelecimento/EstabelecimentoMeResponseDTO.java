@@ -18,6 +18,7 @@ public class EstabelecimentoMeResponseDTO {
 	private LocalDateTime trialEndsAt;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
+	private String logoUrl;
 
 	public EstabelecimentoMeResponseDTO() {
 	}
@@ -95,6 +96,14 @@ public class EstabelecimentoMeResponseDTO {
 
 	public LocalDateTime getUpdatedAt() {
 		return updatedAt;
+	}
+	
+	public String getLogoUrl() {
+	    return logoUrl;
+	}
+
+	public void setLogoUrl(String logoUrl) {
+	    this.logoUrl = logoUrl;
 	}
 
 	public void setId(Long id) {

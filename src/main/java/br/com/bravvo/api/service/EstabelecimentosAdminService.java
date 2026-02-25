@@ -14,6 +14,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneOffset;
+
 @Service
 public class EstabelecimentosAdminService {
 
@@ -83,6 +85,22 @@ public class EstabelecimentosAdminService {
     }
 
     /**
+     * Monta a URL do logo (endpoint interno) com cache-busting via logoUpdatedAt.
+     * Retorna null se não houver logo salvo.
+     */
+    private String buildLogoUrl(Estabelecimentos e) {
+        if (e.getLogoKey() == null || e.getLogoKey().isBlank()) return null;
+
+        // STEP 4 vai criar esse endpoint
+        String base = "/api/admin/estabelecimento/me/logo";
+
+        if (e.getLogoUpdatedAt() == null) return base;
+
+        long v = e.getLogoUpdatedAt().toEpochSecond(ZoneOffset.UTC);
+        return base + "?v=" + v;
+    }
+
+    /**
      * Monta o DTO do estabelecimento sem usar Mapper.
      * Mantém o contrato do frontend e evita erro de construtor.
      */
@@ -107,6 +125,9 @@ public class EstabelecimentosAdminService {
         dto.setTrialEndsAt(e.getTrialEndsAt());
         dto.setCreatedAt(e.getCreatedAt());
         dto.setUpdatedAt(e.getUpdatedAt());
+
+        // ✅ novo campo
+        dto.setLogoUrl(buildLogoUrl(e));
 
         return dto;
     }
