@@ -171,6 +171,7 @@ public class EstabelecimentoOnboardingService {
 		// 1) Cria salão (trial começa aqui)
 		Estabelecimentos estabelecimento = new Estabelecimentos();
 		estabelecimento.setNome(pre.getNome());
+		estabelecimento.setTelefone(pre.getTelefone());
 		estabelecimento.setRamoAtuacao(pre.getRamoAtuacao());
 		estabelecimento.setSlug(pre.getSlug());
 		estabelecimento.setStatusAssinatura(StatusAssinatura.TRIAL);
