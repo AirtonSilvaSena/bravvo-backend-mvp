@@ -5,54 +5,62 @@ import br.com.bravvo.api.repository.UserRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.*;
 import org.springframework.stereotype.Service;
-//Teste deploy automatico
+
 import java.util.List;
-//teste 2
-//Teste 3
+
 /**
- * Classe responsável por ensinar o Spring Security a buscar um usuário no banco
- * de dados.
+ * Classe responsável por ensinar o Spring Security a buscar um usuário no banco.
  *
- * O Spring chama automaticamente este método quando precisa autenticar alguém.
+ * Padrão:
+ * - subject do JWT = email
+ * - authorities = ROLE_<PERFIL>
  */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
-	private final UserRepository userRepository;
+    private final UserRepository userRepository;
 
-	public CustomUserDetailsService(UserRepository userRepository) {
-		this.userRepository = userRepository;
-	}
-//teste
-	//teste2
-	/**
-	 * Este método é chamado pelo Spring Security sempre que ele precisar carregar
-	 * um usuário.
-	 *
-	 * Aqui usamos o EMAIL como identificador único (o mesmo que colocamos no JWT
-	 * como subject).
-	 */
-	@Override
-	public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+    public CustomUserDetailsService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
 
-		// Busca o usuário no banco
-		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado."));
+    /**
+     * Carrega por e-mail (padrão atual).
+     */
+    @Override
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
 
-		// Defesa extra: usuário inativo não pode autenticar
-		if (Boolean.FALSE.equals(user.getAtivo())) {
-			throw new UsernameNotFoundException("Usuário inativo.");
-		}
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado."));
 
-		/*
-		 * Aqui devolvemos um UserDetails para o Spring.
-		 *
-		 * - username -> email - password -> senhaHash (já criptografada) - authorities
-		 * -> perfis/roles do usuário
-		 *
-		 * IMPORTANTE: Toda role no Spring Security deve começar com "ROLE_"
-		 */
-		return new org.springframework.security.core.userdetails.User(user.getEmail(), user.getSenhaHash(),
-				List.of(new SimpleGrantedAuthority("ROLE_" + user.getPerfil().name())));
-	}
+        if (Boolean.FALSE.equals(user.getAtivo())) {
+            throw new UsernameNotFoundException("Usuário inativo.");
+        }
+
+        return new org.springframework.security.core.userdetails.User(
+                user.getEmail(),
+                user.getSenhaHash(),
+                List.of(new SimpleGrantedAuthority("ROLE_" + user.getPerfil().name()))
+        );
+    }
+
+    /**
+     * Multi-tenant: carrega por e-mail + salao_id.
+     * Isso garante que o token só autentica o usuário dentro do salão correto.
+     */
+    public UserDetails loadUserByEmailAndSalaoId(String email, Long salaoId) throws UsernameNotFoundException {
+
+        User user = userRepository.findByEmailAndEstabelecimentoId(email, salaoId)
+                .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado."));
+
+        if (Boolean.FALSE.equals(user.getAtivo())) {
+            throw new UsernameNotFoundException("Usuário inativo.");
+        }
+
+        return new org.springframework.security.core.userdetails.User(
+                user.getEmail(),
+                user.getSenhaHash(),
+                List.of(new SimpleGrantedAuthority("ROLE_" + user.getPerfil().name()))
+        );
+    }
 }

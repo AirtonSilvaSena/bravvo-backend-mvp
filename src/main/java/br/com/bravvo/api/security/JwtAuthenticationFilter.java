@@ -15,67 +15,63 @@ import java.io.IOException;
 /**
  * Filtro JWT executado UMA VEZ por request.
  *
- * Ele: 1) Lê o header Authorization 2) Valida o JWT 3) Extrai o email 4)
- * Autentica o usuário no SecurityContext
+ * Ele:
+ * 1) Lê Authorization: Bearer <token>
+ * 2) Valida JWT (assinatura + expiração)
+ * 3) Extrai subject (email) e (opcional) salao_id
+ * 4) Autentica no SecurityContext
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-	private final JwtService jwtService;
-	private final CustomUserDetailsService userDetailsService;
+    private final JwtService jwtService;
+    private final CustomUserDetailsService userDetailsService;
 
-	public JwtAuthenticationFilter(JwtService jwtService, CustomUserDetailsService userDetailsService) {
-		this.jwtService = jwtService;
-		this.userDetailsService = userDetailsService;
-	}
+    public JwtAuthenticationFilter(JwtService jwtService, CustomUserDetailsService userDetailsService) {
+        this.jwtService = jwtService;
+        this.userDetailsService = userDetailsService;
+    }
 
-	@Override
-	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-			throws ServletException, IOException {
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-		// Lê o header Authorization
-		String authHeader = request.getHeader("Authorization");
+        String authHeader = request.getHeader("Authorization");
 
-		// Se não tiver Bearer token, segue a request normalmente
-		if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-			filterChain.doFilter(request, response);
-			return;
-		}
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
-		// Remove o prefixo "Bearer "
-		String token = authHeader.substring(7);
+        String token = authHeader.substring(7);
 
-		// Valida o token (assinatura + expiração)
-		if (!jwtService.isValid(token)) {
-			filterChain.doFilter(request, response);
-			return;
-		}
+        if (!jwtService.isValid(token)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
-		// Extrai o email (subject) do JWT
-		String email = jwtService.getSubject(token);
+        String email = jwtService.getSubject(token);
+        Long salaoId = jwtService.getEstabelecimentoId(token);
 
-		/*
-		 * Se ainda não houver autenticação no contexto, autenticamos agora.
-		 */
-		if (SecurityContextHolder.getContext().getAuthentication() == null) {
+        if (SecurityContextHolder.getContext().getAuthentication() == null) {
 
-			// Carrega o usuário do banco
-			UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+            UserDetails userDetails;
 
-			/*
-			 * Cria um objeto de autenticação do Spring contendo: - usuário - roles
-			 */
-			UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(userDetails,
-					null, userDetails.getAuthorities());
+            // Multi-tenant: se tiver salao_id no token, carrega o usuário dentro do salão
+            if (salaoId != null) {
+                userDetails = userDetailsService.loadUserByEmailAndSalaoId(email, salaoId);
+            } else {
+                userDetails = userDetailsService.loadUserByUsername(email);
+            }
 
-			// Adiciona detalhes da request (IP, etc.)
-			authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
 
-			// Registra o usuário como autenticado
-			SecurityContextHolder.getContext().setAuthentication(authentication);
-		}
+            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-		// Continua a cadeia de filtros
-		filterChain.doFilter(request, response);
-	}
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        }
+
+        filterChain.doFilter(request, response);
+    }
 }

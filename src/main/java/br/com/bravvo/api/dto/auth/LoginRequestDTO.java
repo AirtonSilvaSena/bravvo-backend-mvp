@@ -1,28 +1,44 @@
 package br.com.bravvo.api.dto.auth;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
 public class LoginRequestDTO {
 
-    @NotBlank(message = "Usuário é obrigatório")
-    private String login; // email OU telefone
+	@NotBlank(message = "Slug é obrigatório")
+	private String slug;
 
-    @NotBlank(message = "Senha é obrigatória")
-    private String senha;
+	@NotBlank(message = "E-mail é obrigatório")
+	@Email(message = "E-mail inválido")
+	private String email;
 
-    public String getLogin() {
-        return login;
-    }
+	@NotBlank(message = "Senha é obrigatória")
+	private String senha;
 
-    public void setLogin(String login) {
-        this.login = login;
-    }
+	public LoginRequestDTO() {
+	}
 
-    public String getSenha() {
-        return senha;
-    }
+	public String getSlug() {
+		return slug;
+	}
 
-    public void setSenha(String senha) {
-        this.senha = senha;
-    }
+	public void setSlug(String slug) {
+		this.slug = slug;
+	}
+
+	public String getEmail() {
+		return email;
+	}
+
+	public void setEmail(String email) {
+		this.email = email;
+	}
+
+	public String getSenha() {
+		return senha;
+	}
+
+	public void setSenha(String senha) {
+		this.senha = senha;
+	}
 }

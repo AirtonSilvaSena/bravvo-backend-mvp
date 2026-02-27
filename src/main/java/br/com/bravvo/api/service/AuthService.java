@@ -4,18 +4,20 @@ import br.com.bravvo.api.dto.auth.AuthResponseDTO;
 import br.com.bravvo.api.dto.auth.MeResponseDTO;
 import br.com.bravvo.api.dto.auth.RegisterRequestDTO;
 import br.com.bravvo.api.dto.user.UserMeUpdateRequestDTO;
+import br.com.bravvo.api.entity.Estabelecimentos;
 import br.com.bravvo.api.entity.RefreshToken;
 import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
+import br.com.bravvo.api.enums.StatusAssinatura;
 import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
+import br.com.bravvo.api.repository.EstabelecimentoRepository;
 import br.com.bravvo.api.repository.RefreshTokenRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.security.JwtService;
 import br.com.bravvo.api.util.TokenHashUtils;
 import jakarta.transaction.Transactional;
-
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,263 +30,252 @@ import java.util.Base64;
 @Service
 public class AuthService {
 
-	private final UserRepository userRepository;
-	private final RefreshTokenRepository refreshTokenRepository;
-	private final PasswordEncoder passwordEncoder;
-	private final JwtService jwtService;
+    private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+    private final EstabelecimentoRepository estabelecimentoRepository;
 
-	public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-			PasswordEncoder passwordEncoder, JwtService jwtService) {
-		this.userRepository = userRepository;
-		this.refreshTokenRepository = refreshTokenRepository;
-		this.passwordEncoder = passwordEncoder;
-		this.jwtService = jwtService;
-	}
+    public AuthService(
+            UserRepository userRepository,
+            RefreshTokenRepository refreshTokenRepository,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService,
+            EstabelecimentoRepository estabelecimentoRepository
+    ) {
+        this.userRepository = userRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+        this.estabelecimentoRepository = estabelecimentoRepository;
+    }
 
-	public AuthResponseDTO login(String login, String senha) {
+    /**
+     * LOGIN (slug + email + senha)
+     *
+     * Regras:
+     * - login somente por email (qualquer perfil)
+     * - slug obrigatório
+     * - usuário deve pertencer ao estabelecimento (users.estabelecimento_id)
+     * - estabelecimento INADIMPLENTE/CANCELADO bloqueia
+     */
+    public AuthResponseDTO login(String slug, String email, String senha) {
 
-	    if (login == null || login.isBlank()) {
-	        throw new RuntimeException("Credenciais inválidas.");
-	    }
+        if (slug == null || slug.isBlank()) {
+            throw new BusinessException("Slug é obrigatório.");
+        }
+        if (email == null || email.isBlank() || senha == null || senha.isBlank()) {
+            throw new BusinessException("Credenciais inválidas.");
+        }
 
-	    String loginTrim = login.trim();
-	    User user;
+        String slugTrim = slug.trim().toLowerCase();
+        String emailTrim = email.trim().toLowerCase();
 
-	    if (looksLikeEmail(loginTrim)) {
-	        // EMAIL -> somente ADMIN
-	        String email = loginTrim.toLowerCase();
-	        user = userRepository.findByEmail(email)
-	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
+        Estabelecimentos estab = estabelecimentoRepository.findBySlug(slugTrim)
+                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado"));
 
-	        if (user.getPerfil() != PerfilUser.ADMIN) {
-	            throw new RuntimeException("Credenciais inválidas.");
-	        }
+        // Bloqueio por assinatura
+        if (estab.getStatusAssinatura() == StatusAssinatura.INADIMPLENTE
+                || estab.getStatusAssinatura() == StatusAssinatura.CANCELADO) {
+            throw new ForbiddenException("Acesso indisponível para este estabelecimento.");
+        }
 
-	    } else {
-	        // TELEFONE -> somente FUNCIONARIO
-	        String telefone = normalizeTelefone(loginTrim);
+        // User precisa existir dentro do estabelecimento
+        User user = userRepository.findByEmailAndEstabelecimentoId(emailTrim, estab.getId())
+                .orElseThrow(() -> new BusinessException("Credenciais inválidas."));
 
-	        long count = userRepository.countByTelefoneAndPerfil(telefone, PerfilUser.FUNCIONARIO);
-	        if (count == 0) {
-	            throw new RuntimeException("Credenciais inválidas.");
-	        }
-	        if (count > 1) {
-	            throw new RuntimeException("Telefone duplicado para funcionário. Contate o suporte.");
-	        }
+        if (Boolean.FALSE.equals(user.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-	        user = userRepository.findByTelefoneAndPerfil(telefone, PerfilUser.FUNCIONARIO)
-	                .orElseThrow(() -> new RuntimeException("Credenciais inválidas."));
-	    }
+        if (!passwordEncoder.matches(senha, user.getSenhaHash())) {
+            throw new BusinessException("Credenciais inválidas.");
+        }
 
-	    if (Boolean.FALSE.equals(user.getAtivo())) {
-	        throw new RuntimeException("Usuário inativo.");
-	    }
+        // JWT com salao_id + slug
+        String accessToken = jwtService.generateAccessToken(user, estab.getId(), estab.getSlug());
 
-	    if (!passwordEncoder.matches(senha, user.getSenhaHash())) {
-	        throw new RuntimeException("Credenciais inválidas.");
-	    }
+        // Refresh token (rotacionável)
+        String refreshRaw = generateSecureToken();
+        String refreshHash = TokenHashUtils.sha256(refreshRaw);
 
-	    String accessToken = jwtService.generateAccessToken(user);
+        RefreshToken rt = new RefreshToken();
+        rt.setUser(user);
+        rt.setTokenHash(refreshHash);
+        rt.setRevoked(false);
+        rt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
+        refreshTokenRepository.save(rt);
 
-	    String refreshRaw = generateSecureToken();
-	    String refreshHash = TokenHashUtils.sha256(refreshRaw);
+        return new AuthResponseDTO(accessToken, refreshRaw, jwtService.getAccessTokenExpiresInSeconds());
+    }
 
-	    RefreshToken rt = new RefreshToken();
-	    rt.setUser(user);
-	    rt.setTokenHash(refreshHash);
-	    rt.setRevoked(false);
-	    rt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
+    /**
+     * REFRESH - valida refresh token (existe, não revogado, não expirado)
+     * - revoga o atual
+     * - cria um novo refresh (rotação)
+     * - gera novo access token
+     *
+     * Observação multi-tenant:
+     * - gera o novo JWT mantendo salao_id do usuário (user.estabelecimentoId)
+     * - se o salão estiver INADIMPLENTE/CANCELADO, bloqueia refresh
+     */
+    public AuthResponseDTO refresh(String refreshTokenRaw) {
 
-	    refreshTokenRepository.save(rt);
+        String hash = TokenHashUtils.sha256(refreshTokenRaw);
 
-	    return new AuthResponseDTO(accessToken, refreshRaw, jwtService.getAccessTokenExpiresInSeconds());
-	}
+        RefreshToken rt = refreshTokenRepository.findByTokenHash(hash)
+                .orElseThrow(() -> new BusinessException("Refresh token inválido."));
 
-	private boolean looksLikeEmail(String s) {
-	    return s.contains("@");
-	}
+        if (Boolean.TRUE.equals(rt.getRevoked())) {
+            throw new BusinessException("Refresh token revogado.");
+        }
 
-	private String normalizeTelefone(String s) {
-	    return s.replaceAll("\\D", "");
-	}
-	/**
-	 * REFRESH - valida refresh token (existe, não revogado, não expirado) - revoga
-	 * o atual - cria um novo refresh (rotação) - gera novo access token
-	 */
-	public AuthResponseDTO refresh(String refreshTokenRaw) {
-		String hash = TokenHashUtils.sha256(refreshTokenRaw);
+        if (rt.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BusinessException("Refresh token expirado.");
+        }
 
-		RefreshToken rt = refreshTokenRepository.findByTokenHash(hash)
-				.orElseThrow(() -> new RuntimeException("Refresh token inválido."));
+        User user = rt.getUser();
 
-		if (Boolean.TRUE.equals(rt.getRevoked())) {
-			throw new RuntimeException("Refresh token revogado.");
-		}
+        if (Boolean.FALSE.equals(user.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-		if (rt.getExpiresAt().isBefore(LocalDateTime.now())) {
-			throw new RuntimeException("Refresh token expirado.");
-		}
+        // Rotação: revoga o token atual
+        rt.setRevoked(true);
+        refreshTokenRepository.save(rt);
 
-		User user = rt.getUser();
+        // Cria novo refresh token
+        String newRefreshRaw = generateSecureToken();
+        String newRefreshHash = TokenHashUtils.sha256(newRefreshRaw);
 
-		if (Boolean.FALSE.equals(user.getAtivo())) {
-			throw new RuntimeException("Usuário inativo.");
-		}
+        RefreshToken newRt = new RefreshToken();
+        newRt.setUser(user);
+        newRt.setTokenHash(newRefreshHash);
+        newRt.setRevoked(false);
+        newRt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
+        refreshTokenRepository.save(newRt);
 
-		// Rotação: revoga o token atual
-		rt.setRevoked(true);
-		refreshTokenRepository.save(rt);
+        // Novo access token mantendo contexto do salão
+        Long salaoId = user.getSalaoId();
+        String slug = null;
 
-		// Cria novo refresh token
-		String newRefreshRaw = generateSecureToken();
-		String newRefreshHash = TokenHashUtils.sha256(newRefreshRaw);
+        if (salaoId != null) {
+            Estabelecimentos estab = estabelecimentoRepository.findById(salaoId)
+                    .orElseThrow(() -> new ForbiddenException("Estabelecimento inválido."));
 
-		RefreshToken newRt = new RefreshToken();
-		newRt.setUser(user);
-		newRt.setTokenHash(newRefreshHash);
-		newRt.setRevoked(false);
-		newRt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
+            if (estab.getStatusAssinatura() == StatusAssinatura.INADIMPLENTE
+                    || estab.getStatusAssinatura() == StatusAssinatura.CANCELADO) {
+                throw new ForbiddenException("Acesso indisponível para este estabelecimento.");
+            }
 
-		refreshTokenRepository.save(newRt);
+            slug = estab.getSlug();
+        }
 
-		// Novo access token
-		String newAccessToken = jwtService.generateAccessToken(user);
+        String newAccessToken = jwtService.generateAccessToken(user, salaoId, slug);
 
-		return new AuthResponseDTO(newAccessToken, newRefreshRaw, jwtService.getAccessTokenExpiresInSeconds());
-	}
+        return new AuthResponseDTO(newAccessToken, newRefreshRaw, jwtService.getAccessTokenExpiresInSeconds());
+    }
 
-	/**
-	 * LOGOUT - revoga o refresh token informado
-	 */
-	public void logout(String refreshTokenRaw) {
-		String hash = TokenHashUtils.sha256(refreshTokenRaw);
+    /**
+     * LOGOUT - revoga o refresh token informado
+     */
+    public void logout(String refreshTokenRaw) {
+        String hash = TokenHashUtils.sha256(refreshTokenRaw);
 
-		RefreshToken rt = refreshTokenRepository.findByTokenHash(hash)
-				.orElseThrow(() -> new RuntimeException("Refresh token inválido."));
+        RefreshToken rt = refreshTokenRepository.findByTokenHash(hash)
+                .orElseThrow(() -> new BusinessException("Refresh token inválido."));
 
-		rt.setRevoked(true);
-		refreshTokenRepository.save(rt);
-	}
+        rt.setRevoked(true);
+        refreshTokenRepository.save(rt);
+    }
 
-	/**
-	 * ME - retorna dados do usuário autenticado (via email do JWT)
-	 */
-	public MeResponseDTO me(String email) {
+    /**
+     * ME - retorna dados do usuário autenticado (via email do JWT)
+     */
+    public MeResponseDTO me(String email) {
 
-		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new RuntimeException("Usuário não encontrado."));
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
 
-		if (Boolean.FALSE.equals(user.getAtivo())) {
-			throw new RuntimeException("Usuário inativo.");
-		}
+        if (Boolean.FALSE.equals(user.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-		return new MeResponseDTO(user.getId(), user.getNome(), user.getEmail(), user.getTelefone(), user.getPerfil());
-	}
+        return new MeResponseDTO(user.getId(), user.getNome(), user.getEmail(), user.getTelefone(), user.getPerfil());
+    }
 
-	/**
-	 * Gera token forte e aleatório (URL-safe)
-	 */
-	private String generateSecureToken() {
-		byte[] bytes = new byte[48];
-		new SecureRandom().nextBytes(bytes);
-		return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-	}
+    /**
+     * REGISTER (público)
+     * - cria um usuário do tipo CLIENTE (self-register)
+     * - valida e-mail único
+     * - gera senha_hash com BCrypt
+     * - retorna dados do usuário criado (sem tokens)
+     *
+     * OBS: aqui você ainda NÃO está exigindo slug no register (como está hoje).
+     * Se você quiser, a gente ajusta depois para atrelar estabelecimento.
+     */
+    public MeResponseDTO register(RegisterRequestDTO dto) {
 
-	/**
-	 * REGISTER (público) - cria um usuário do tipo CLIENTE (self-register) - valida
-	 * e-mail único - gera senha_hash com BCrypt - retorna dados do usuário criado
-	 * (sem tokens)
-	 */
-	public MeResponseDTO register(RegisterRequestDTO dto) {
+        if (userRepository.existsByEmail(dto.getEmail())) {
+            throw new BusinessException("Já existe um usuário com este e-mail.");
+        }
 
-		// valida e-mail único
-		if (userRepository.existsByEmail(dto.getEmail())) {
-			throw new BusinessException("Já existe um usuário com este e-mail.");
-		}
+        User user = new User();
+        user.setNome(dto.getNome());
+        user.setEmail(dto.getEmail());
+        user.setTelefone(dto.getTelefone());
 
-		User user = new User();
-		user.setNome(dto.getNome());
-		user.setEmail(dto.getEmail());
-		user.setTelefone(dto.getTelefone());
+        user.setPerfil(PerfilUser.CLIENTE);
+        user.setAtivo(true);
+        user.setSenhaHash(passwordEncoder.encode(dto.getSenha()));
 
-		// REGRA: cadastro público sempre cria CLIENTE
-		user.setPerfil(PerfilUser.CLIENTE);
+        userRepository.save(user);
 
-		user.setAtivo(true);
-		user.setSenhaHash(passwordEncoder.encode(dto.getSenha()));
+        return new MeResponseDTO(user.getId(), user.getNome(), user.getEmail(), user.getTelefone(), user.getPerfil());
+    }
 
-		userRepository.save(user);
+    @Transactional
+    public MeResponseDTO updateMe(UserMeUpdateRequestDTO dto) {
 
-		// Retorna o "me" do usuário recém criado
-		return new MeResponseDTO(user.getId(), user.getNome(), user.getEmail(), user.getTelefone(), user.getPerfil());
-	}
-	
-	@Transactional
-	public MeResponseDTO updateMe(UserMeUpdateRequestDTO dto) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
-	    /*
-	     * Recupera a autenticação atual a partir do SecurityContext.
-	     * O JwtAuthenticationFilter já validou o token e populou o contexto.
-	     */
-	    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new ForbiddenException("Usuário não autenticado.");
+        }
 
-	    if (auth == null || !auth.isAuthenticated()) {
-	        throw new ForbiddenException("Usuário não autenticado.");
-	    }
+        String email = auth.getName();
 
-	    /*
-	     * O subject do JWT é o email do usuário.
-	     * Esse padrão já foi definido no login.
-	     */
-	    String email = auth.getName();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
 
-	    /*
-	     * Busca o usuário no banco.
-	     * Caso não exista, algo está inconsistente com o token.
-	     */
-	    User user = userRepository.findByEmail(email)
-	            .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
+        if (Boolean.FALSE.equals(user.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-	    /*
-	     * Defesa extra: usuário inativo não pode atualizar seus dados.
-	     */
-	    if (Boolean.FALSE.equals(user.getAtivo())) {
-	        throw new ForbiddenException("Usuário inativo.");
-	    }
+        user.setNome(dto.getNome().trim());
+        user.setTelefone(dto.getTelefone() == null ? null : dto.getTelefone().trim());
 
-	    /*
-	     * Atualiza SOMENTE os campos permitidos.
-	     */
-	    user.setNome(dto.getNome().trim());
-	    user.setTelefone(
-	        dto.getTelefone() == null ? null : dto.getTelefone().trim()
-	    );
+        if (dto.getSenha() != null && !dto.getSenha().isBlank()) {
+            user.setSenhaHash(passwordEncoder.encode(dto.getSenha()));
+        }
 
-	    /*
-	     * Se a senha foi enviada, gera novo hash.
-	     * Caso contrário, mantém o hash atual.
-	     */
-	    if (dto.getSenha() != null && !dto.getSenha().isBlank()) {
-	        user.setSenhaHash(passwordEncoder.encode(dto.getSenha()));
-	    }
+        userRepository.save(user);
 
-	    /*
-	     * Persiste as alterações.
-	     * updatedAt será atualizado automaticamente pelo @PreUpdate.
-	     */
-	    userRepository.save(user);
+        return new MeResponseDTO(
+                user.getId(),
+                user.getNome(),
+                user.getEmail(),
+                user.getTelefone(),
+                user.getPerfil()
+        );
+    }
 
-	    /*
-	     * Retorna os dados atualizados do usuário autenticado.
-	     */
-	    return new MeResponseDTO(
-	        user.getId(),
-	        user.getNome(),
-	        user.getEmail(),
-	        user.getTelefone(),
-	        user.getPerfil()
-	    );
-	}
-
-
+    /**
+     * Gera token forte e aleatório (URL-safe)
+     */
+    private String generateSecureToken() {
+        byte[] bytes = new byte[48];
+        new SecureRandom().nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
 }
