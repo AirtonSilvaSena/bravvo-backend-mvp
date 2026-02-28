@@ -11,6 +11,9 @@ public interface EstabelecimentoRepository extends JpaRepository<Estabelecimento
 	Optional<Estabelecimentos> findBySlug(String slug);
 	
 	Optional<Estabelecimentos> findByOwnerUserId(Long ownerUserId);
+
+	Optional<Long> findIdBySlug(String slug);
+	
 	
 
 }

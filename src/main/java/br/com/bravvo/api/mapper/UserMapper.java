@@ -5,14 +5,22 @@ import br.com.bravvo.api.dto.user.UserResponseDTO;
 import br.com.bravvo.api.dto.user.UserUpdateRequestDTO;
 import br.com.bravvo.api.entity.User;
 
+/**
+ * Mapper responsável apenas pelos dados da entidade User.
+ *
+ * ⚠️ IMPORTANTE:
+ * - Perfil NÃO pertence mais à entidade User.
+ * - Perfil agora é responsabilidade do vínculo EstabelecimentoUser.
+ * - Senha nunca é manipulada aqui (somente no Service).
+ */
 public class UserMapper {
 
     private UserMapper() {}
 
     /**
      * DTO (create) -> Entity
-     * Observação: NÃO seta senhaHash aqui.
-     * A senha deve ser hasheada no Service e aplicada via setSenhaHash().
+     * Não seta senhaHash.
+     * Não seta perfil (agora pertence ao vínculo).
      */
     public static User toEntity(UserCreateRequestDTO dto) {
         if (dto == null) return null;
@@ -21,15 +29,15 @@ public class UserMapper {
         user.setNome(dto.getNome());
         user.setEmail(dto.getEmail());
         user.setTelefone(dto.getTelefone());
-        user.setPerfil(dto.getPerfil());
         user.setAtivo(true);
 
         return user;
     }
 
     /**
-     * Atualiza uma Entity existente com dados do DTO (update).
-     * Observação: senha (se existir) deve ser hasheada no Service e aplicada via setSenhaHash().
+     * Atualiza entidade existente.
+     * Não altera perfil.
+     * Não altera ativo.
      */
     public static void updateEntity(User user, UserUpdateRequestDTO dto) {
         if (user == null || dto == null) return;
@@ -37,13 +45,12 @@ public class UserMapper {
         user.setNome(dto.getNome());
         user.setEmail(dto.getEmail());
         user.setTelefone(dto.getTelefone());
-        user.setPerfil(dto.getPerfil());
-        // ativo não mexe aqui (regra do negócio: inativar é endpoint/ação específica)
     }
 
     /**
-     * Entity -> DTO (response)
-     * Nunca expõe senhaHash.
+     * Entity -> Response DTO
+     * Perfil NÃO é retornado aqui.
+     * O perfil deve vir do vínculo (EstabelecimentoUser).
      */
     public static UserResponseDTO toResponse(User user) {
         if (user == null) return null;
@@ -53,7 +60,6 @@ public class UserMapper {
         dto.setNome(user.getNome());
         dto.setEmail(user.getEmail());
         dto.setTelefone(user.getTelefone());
-        dto.setPerfil(user.getPerfil());
         dto.setAtivo(user.getAtivo());
         dto.setCreatedAt(user.getCreatedAt());
         dto.setUpdatedAt(user.getUpdatedAt());

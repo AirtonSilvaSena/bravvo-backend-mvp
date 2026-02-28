@@ -3,6 +3,7 @@ package br.com.bravvo.api.service;
 import br.com.bravvo.api.dto.funcionario.FuncionarioServicoConfigItemRequestDTO;
 import br.com.bravvo.api.dto.funcionario.FuncionarioServicoConfigResponseDTO;
 import br.com.bravvo.api.dto.funcionario.FuncionarioServicosUpdateRequestDTO;
+import br.com.bravvo.api.entity.EstabelecimentoUser;
 import br.com.bravvo.api.entity.FuncionarioPrefs;
 import br.com.bravvo.api.entity.FuncionarioServico;
 import br.com.bravvo.api.entity.FuncionarioServicoId;
@@ -10,7 +11,12 @@ import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.ForbiddenException;
-import br.com.bravvo.api.repository.*;
+import br.com.bravvo.api.repository.EstabelecimentoUserRepository;
+import br.com.bravvo.api.repository.FuncionarioPrefsRepository;
+import br.com.bravvo.api.repository.FuncionarioServicoRepository;
+import br.com.bravvo.api.repository.ServicoRepository;
+import br.com.bravvo.api.repository.UserRepository;
+import br.com.bravvo.api.security.TenantContext;
 import jakarta.transaction.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -33,244 +39,273 @@ import java.util.stream.Collectors;
 @Service
 public class FuncionarioService {
 
-	private final UserRepository userRepository;
-	private final ServicoRepository servicoRepository;
-	private final FuncionarioServicoRepository funcionarioServicoRepository;
-	private final FuncionarioPrefsRepository funcionarioPrefsRepository;
+    private final UserRepository userRepository;
+    private final ServicoRepository servicoRepository;
+    private final FuncionarioServicoRepository funcionarioServicoRepository;
+    private final FuncionarioPrefsRepository funcionarioPrefsRepository;
+    private final EstabelecimentoUserRepository estabelecimentoUserRepository;
 
-	private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-	public FuncionarioService(UserRepository userRepository, ServicoRepository servicoRepository,
-			FuncionarioServicoRepository funcionarioServicoRepository,
-			FuncionarioPrefsRepository funcionarioPrefsRepository) {
-		this.userRepository = userRepository;
-		this.servicoRepository = servicoRepository;
-		this.funcionarioServicoRepository = funcionarioServicoRepository;
-		this.funcionarioPrefsRepository = funcionarioPrefsRepository;
-	}
+    public FuncionarioService(
+            UserRepository userRepository,
+            ServicoRepository servicoRepository,
+            FuncionarioServicoRepository funcionarioServicoRepository,
+            FuncionarioPrefsRepository funcionarioPrefsRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository
+    ) {
+        this.userRepository = userRepository;
+        this.servicoRepository = servicoRepository;
+        this.funcionarioServicoRepository = funcionarioServicoRepository;
+        this.funcionarioPrefsRepository = funcionarioPrefsRepository;
+        this.estabelecimentoUserRepository = estabelecimentoUserRepository;
+    }
 
-	/**
-	 * Retorna a lista de serviços (ativos) configuráveis pelo funcionário logado,
-	 * com: - habilitado (funcionario_servicos) - duracaoFuncionarioMin
-	 * (funcionario_prefs)
-	 */
-	public List<FuncionarioServicoConfigResponseDTO> getMeServicos() {
+    /**
+     * Retorna a lista de serviços (ativos) configuráveis pelo funcionário logado,
+     * com:
+     * - habilitado (funcionario_servicos)
+     * - duracaoFuncionarioMin (funcionario_prefs)
+     */
+    public List<FuncionarioServicoConfigResponseDTO> getMeServicos() {
 
-		// 1) Valida e recupera o funcionário logado via JWT
-		User funcionario = getFuncionarioLogado();
+        // 1) Valida e recupera o funcionário logado via JWT (multi-tenant via vínculo)
+        User funcionario = getFuncionarioLogado();
 
-		// 2) Busca vínculos: quais serviços o funcionário habilitou
-		Set<Long> habilitados = new HashSet<>(
-				funcionarioServicoRepository.findServicoIdsByFuncionarioId(funcionario.getId()));
+        // 2) Busca vínculos: quais serviços o funcionário habilitou
+        Set<Long> habilitados = new HashSet<>(
+                funcionarioServicoRepository.findServicoIdsByFuncionarioId(funcionario.getId())
+        );
 
-		// 3) Busca prefs: durações personalizadas por serviço
-		Map<Long, Integer> duracoesCustom = loadDuracoesFromPrefs(funcionario.getId());
+        // 3) Busca prefs: durações personalizadas por serviço
+        Map<Long, Integer> duracoesCustom = loadDuracoesFromPrefs(funcionario.getId());
 
-		// 4) Busca todos os serviços ativos do sistema
-		var servicosAtivos = servicoRepository.findAllAtivos();
+        // 4) Busca todos os serviços ativos do sistema
+        var servicosAtivos = servicoRepository.findAllAtivos();
 
-		// 5) Monta o formato final para o front
-		return servicosAtivos.stream().map(servico -> {
-			var dto = new FuncionarioServicoConfigResponseDTO();
-			dto.setId(servico.getId());
-			dto.setNome(servico.getNome());
-			dto.setDescricao(servico.getDescricao());
-			dto.setValor(servico.getValor());
+        // 5) Monta o formato final para o front
+        return servicosAtivos.stream().map(servico -> {
+            var dto = new FuncionarioServicoConfigResponseDTO();
+            dto.setId(servico.getId());
+            dto.setNome(servico.getNome());
+            dto.setDescricao(servico.getDescricao());
+            dto.setValor(servico.getValor());
 
-			dto.setDuracaoPadraoMin(servico.getDuracaoMin());
+            dto.setDuracaoPadraoMin(servico.getDuracaoMin());
 
-			boolean isHabilitado = habilitados.contains(servico.getId());
-			dto.setHabilitado(isHabilitado);
+            boolean isHabilitado = habilitados.contains(servico.getId());
+            dto.setHabilitado(isHabilitado);
 
-			// Duração personalizada (se existir), senão usa padrão
-			Integer duracao = duracoesCustom.get(servico.getId());
-			dto.setDuracaoFuncionarioMin(duracao != null ? duracao : servico.getDuracaoMin());
+            // Duração personalizada (se existir), senão usa padrão
+            Integer duracao = duracoesCustom.get(servico.getId());
+            dto.setDuracaoFuncionarioMin(duracao != null ? duracao : servico.getDuracaoMin());
 
-			return dto;
-		}).collect(Collectors.toList());
-	}
+            return dto;
+        }).collect(Collectors.toList());
+    }
 
-	// ==========================================================
-	// Auxiliares
-	// ==========================================================
+    // ==========================================================
+    // Auxiliares
+    // ==========================================================
 
-	/**
-	 * Recupera o usuário logado e garante que: - está autenticado - existe no banco
-	 * - está ativo - perfil é FUNCIONARIO
-	 *
-	 * Importante: Admin NÃO acessa esse módulo por regra de produto.
-	 */
-	private User getFuncionarioLogado() {
+    /**
+     * Recupera o usuário logado e garante que:
+     * - está autenticado
+     * - existe no banco
+     * - está ativo
+     * - vínculo no tenant atual está ativo
+     * - perfil do vínculo é FUNCIONARIO
+     *
+     * Importante: Admin NÃO acessa esse módulo por regra de produto.
+     *
+     * Multi-tenant (refatorado):
+     * - Perfil NÃO é lido de User.
+     * - Perfil é validado via vínculo EstabelecimentoUser (estabelecimento_users).
+     */
+    private User getFuncionarioLogado() {
 
-		var auth = SecurityContextHolder.getContext().getAuthentication();
+        var auth = SecurityContextHolder.getContext().getAuthentication();
 
-		if (auth == null || !auth.isAuthenticated()) {
-			throw new ForbiddenException("Usuário não autenticado.");
-		}
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new ForbiddenException("Usuário não autenticado.");
+        }
 
-		String email = auth.getName();
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String email = auth.getName();
 
-		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ForbiddenException("Usuário não encontrado."));
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ForbiddenException("Usuário não encontrado."));
 
-		if (!Boolean.TRUE.equals(user.getAtivo())) {
-			throw new ForbiddenException("Usuário inativo.");
-		}
+        if (!Boolean.TRUE.equals(user.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-		if (user.getPerfil() != PerfilUser.FUNCIONARIO) {
-			throw new ForbiddenException("Acesso permitido apenas para funcionários.");
-		}
+        EstabelecimentoUser vinculo = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
 
-		return user;
-	}
+        if (Boolean.FALSE.equals(vinculo.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
 
-	/**
-	 * Carrega o JSON de prefs e converte em: servicoId -> duracaoMin
-	 *
-	 * Se não existir prefs, retorna vazio.
-	 */
-	private Map<Long, Integer> loadDuracoesFromPrefs(Long funcionarioId) {
-		return funcionarioPrefsRepository.findById(funcionarioId).map(prefs -> parseDuracoes(prefs.getPrefsJson()))
-				.orElse(Collections.emptyMap());
-	}
+        if (vinculo.getPerfil() != PerfilUser.FUNCIONARIO) {
+            throw new ForbiddenException("Acesso permitido apenas para funcionários.");
+        }
 
-	/**
-	 * Parse seguro do JSON (não pode quebrar tela).
-	 *
-	 * Formato esperado: { "servicos": { "1": { "duracaoMin": 30 } } }
-	 */
-	private Map<Long, Integer> parseDuracoes(String prefsJson) {
+        return user;
+    }
 
-		if (prefsJson == null || prefsJson.isBlank()) {
-			return Collections.emptyMap();
-		}
+    /**
+     * Carrega o JSON de prefs e converte em: servicoId -> duracaoMin
+     *
+     * Se não existir prefs, retorna vazio.
+     */
+    private Map<Long, Integer> loadDuracoesFromPrefs(Long funcionarioId) {
+        return funcionarioPrefsRepository.findById(funcionarioId)
+                .map(prefs -> parseDuracoes(prefs.getPrefsJson()))
+                .orElse(Collections.emptyMap());
+    }
 
-		try {
-			JsonNode root = objectMapper.readTree(prefsJson);
-			JsonNode servicosNode = root.get("servicos");
+    /**
+     * Parse seguro do JSON (não pode quebrar tela).
+     *
+     * Formato esperado: { "servicos": { "1": { "duracaoMin": 30 } } }
+     */
+    private Map<Long, Integer> parseDuracoes(String prefsJson) {
 
-			if (servicosNode == null || !servicosNode.isObject()) {
-				return Collections.emptyMap();
-			}
+        if (prefsJson == null || prefsJson.isBlank()) {
+            return Collections.emptyMap();
+        }
 
-			Map<Long, Integer> result = new HashMap<>();
+        try {
+            JsonNode root = objectMapper.readTree(prefsJson);
+            JsonNode servicosNode = root.get("servicos");
 
-			Iterator<String> it = servicosNode.fieldNames();
-			while (it.hasNext()) {
-				String servicoIdStr = it.next();
-				JsonNode item = servicosNode.get(servicoIdStr);
+            if (servicosNode == null || !servicosNode.isObject()) {
+                return Collections.emptyMap();
+            }
 
-				JsonNode duracaoNode = (item != null) ? item.get("duracaoMin") : null;
-				if (duracaoNode != null && duracaoNode.isInt()) {
-					result.put(Long.valueOf(servicoIdStr), duracaoNode.asInt());
-				}
-			}
+            Map<Long, Integer> result = new HashMap<>();
 
-			return result;
+            Iterator<String> it = servicosNode.fieldNames();
+            while (it.hasNext()) {
+                String servicoIdStr = it.next();
+                JsonNode item = servicosNode.get(servicoIdStr);
 
-		} catch (Exception e) {
-			// Importante: se JSON estiver inválido, não quebra nada.
-			return Collections.emptyMap();
-		}
-	}
+                JsonNode duracaoNode = (item != null) ? item.get("duracaoMin") : null;
+                if (duracaoNode != null && duracaoNode.isInt()) {
+                    result.put(Long.valueOf(servicoIdStr), duracaoNode.asInt());
+                }
+            }
 
-	/**
-	 * Atualiza (sincroniza) os serviços habilitados e preferências do funcionário
-	 * logado.
-	 *
-	 * Regras: - Apenas FUNCIONARIO pode chamar - Apenas serviços ATIVOS podem ser
-	 * habilitados - Persiste: - funcionario_servicos (vínculos) -
-	 * funcionario_prefs.prefs_json (duração por serviço)
-	 */
-	@Transactional
-	public List<FuncionarioServicoConfigResponseDTO> updateMeServicos(FuncionarioServicosUpdateRequestDTO request) {
+            return result;
 
-		// 1) valida e obtém funcionário logado (já existente no seu service)
-		User funcionario = getFuncionarioLogado();
+        } catch (Exception e) {
+            // Importante: se JSON estiver inválido, não quebra nada.
+            return Collections.emptyMap();
+        }
+    }
 
-		// 2) normaliza e valida request (evita NPE / ids duplicados)
-		var items = request.getServicos();
+    /**
+     * Atualiza (sincroniza) os serviços habilitados e preferências do funcionário logado.
+     *
+     * Regras:
+     * - Apenas FUNCIONARIO pode chamar
+     * - Apenas serviços ATIVOS podem ser habilitados
+     * - Persiste:
+     *   - funcionario_servicos (vínculos)
+     *   - funcionario_prefs.prefs_json (duração por serviço)
+     */
+    @Transactional
+    public List<FuncionarioServicoConfigResponseDTO> updateMeServicos(FuncionarioServicosUpdateRequestDTO request) {
 
-		// Coleta IDs que o funcionário deseja habilitar
-		List<Long> habilitarIds = items.stream().filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
-				.map(FuncionarioServicoConfigItemRequestDTO::getServicoId).distinct().toList();
+        // 1) valida e obtém funcionário logado
+        User funcionario = getFuncionarioLogado();
 
-		// 3) valida se os serviços habilitados existem e estão ATIVOS
-		if (!habilitarIds.isEmpty()) {
-			List<Long> ativos = servicoRepository.findActiveIdsByIds(habilitarIds);
-			Set<Long> ativosSet = new HashSet<>(ativos);
+        // 2) normaliza e valida request (evita NPE / ids duplicados)
+        var items = request.getServicos();
 
-			// Se algum ID habilitado não estiver em "ativos", é inválido
-			List<Long> invalidos = habilitarIds.stream().filter(id -> !ativosSet.contains(id)).toList();
+        // Coleta IDs que o funcionário deseja habilitar
+        List<Long> habilitarIds = items.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
+                .map(FuncionarioServicoConfigItemRequestDTO::getServicoId)
+                .distinct()
+                .toList();
 
-			if (!invalidos.isEmpty()) {
-				throw new BusinessException("Serviços inválidos ou inativos: " + invalidos);
-			}
-		}
+        // 3) valida se os serviços habilitados existem e estão ATIVOS
+        if (!habilitarIds.isEmpty()) {
+            List<Long> ativos = servicoRepository.findActiveIdsByIds(habilitarIds);
+            Set<Long> ativosSet = new HashSet<>(ativos);
 
-		// 4) sincroniza funcionario_servicos
-		// Estratégia MVP: apaga tudo do funcionário e recria apenas os habilitados
-		funcionarioServicoRepository.deleteAllByFuncionarioId(funcionario.getId());
+            List<Long> invalidos = habilitarIds.stream()
+                    .filter(id -> !ativosSet.contains(id))
+                    .toList();
 
-		if (!habilitarIds.isEmpty()) {
-			List<FuncionarioServico> novos = habilitarIds.stream().map(servicoId -> {
-				FuncionarioServico fs = new FuncionarioServico();
-				fs.setId(new FuncionarioServicoId(funcionario.getId(), servicoId));
-				return fs;
-			}).toList();
+            if (!invalidos.isEmpty()) {
+                throw new BusinessException("Serviços inválidos ou inativos: " + invalidos);
+            }
+        }
 
-			funcionarioServicoRepository.saveAll(novos);
-		}
+        // 4) sincroniza funcionario_servicos (apaga tudo e recria)
+        funcionarioServicoRepository.deleteAllByFuncionarioId(funcionario.getId());
 
-		// 5) monta prefs_json com durações personalizadas
-		// Regra: só persiste duração para serviços habilitados.
-		// (se o serviço estiver desabilitado, não faz sentido manter "duração dele")
-		Map<Long, Integer> duracoes = items.stream().filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
-				.filter(i -> i.getDuracaoMin() != null) // só guarda se veio preenchido
-				.collect(Collectors.toMap(FuncionarioServicoConfigItemRequestDTO::getServicoId,
-						FuncionarioServicoConfigItemRequestDTO::getDuracaoMin, (a, b) -> b // se duplicar id, fica o
-																							// último
-				));
+        if (!habilitarIds.isEmpty()) {
+            List<FuncionarioServico> novos = habilitarIds.stream().map(servicoId -> {
+                FuncionarioServico fs = new FuncionarioServico();
+                fs.setId(new FuncionarioServicoId(funcionario.getId(), servicoId));
+                return fs;
+            }).toList();
 
-		String prefsJson = buildPrefsJson(duracoes);
+            funcionarioServicoRepository.saveAll(novos);
+        }
 
-		// 6) upsert em funcionario_prefs
-		FuncionarioPrefs prefs = funcionarioPrefsRepository.findById(funcionario.getId()).orElseGet(() -> {
-			FuncionarioPrefs p = new FuncionarioPrefs();
-			p.setFuncionarioId(funcionario.getId());
-			return p;
-		});
+        // 5) monta prefs_json com durações personalizadas
+        Map<Long, Integer> duracoes = items.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
+                .filter(i -> i.getDuracaoMin() != null)
+                .collect(Collectors.toMap(
+                        FuncionarioServicoConfigItemRequestDTO::getServicoId,
+                        FuncionarioServicoConfigItemRequestDTO::getDuracaoMin,
+                        (a, b) -> b
+                ));
 
-		prefs.setPrefsJson(prefsJson);
-		funcionarioPrefsRepository.save(prefs);
+        String prefsJson = buildPrefsJson(duracoes);
 
-		// 7) retorna a lista atualizada (mesma do GET)
-		return getMeServicos();
-	}
+        // 6) upsert em funcionario_prefs
+        FuncionarioPrefs prefs = funcionarioPrefsRepository.findById(funcionario.getId()).orElseGet(() -> {
+            FuncionarioPrefs p = new FuncionarioPrefs();
+            p.setFuncionarioId(funcionario.getId());
+            return p;
+        });
 
-	/**
-	 * Monta o JSON no formato padrão definido: { "servicos": { "1": { "duracaoMin":
-	 * 30 }, "2": { "duracaoMin": 45 } } }
-	 */
-	private String buildPrefsJson(Map<Long, Integer> duracoes) {
-		try {
-			ObjectNode root = JsonNodeFactory.instance.objectNode();
-			ObjectNode servicosNode = root.putObject("servicos");
+        prefs.setPrefsJson(prefsJson);
+        funcionarioPrefsRepository.save(prefs);
 
-			for (var entry : duracoes.entrySet()) {
-				String servicoId = String.valueOf(entry.getKey());
-				int duracaoMin = entry.getValue();
+        // 7) retorna a lista atualizada
+        return getMeServicos();
+    }
 
-				ObjectNode item = servicosNode.putObject(servicoId);
-				item.put("duracaoMin", duracaoMin);
-			}
+    /**
+     * Monta o JSON no formato padrão definido:
+     * { "servicos": { "1": { "duracaoMin": 30 }, "2": { "duracaoMin": 45 } } }
+     */
+    private String buildPrefsJson(Map<Long, Integer> duracoes) {
+        try {
+            ObjectNode root = JsonNodeFactory.instance.objectNode();
+            ObjectNode servicosNode = root.putObject("servicos");
 
-			return objectMapper.writeValueAsString(root);
+            for (var entry : duracoes.entrySet()) {
+                String servicoId = String.valueOf(entry.getKey());
+                int duracaoMin = entry.getValue();
 
-		} catch (Exception e) {
-			// Se der erro aqui é bug do backend -> melhor falhar claramente
-			throw new BusinessException("Erro ao salvar preferências do funcionário.");
-		}
-	}
+                ObjectNode item = servicosNode.putObject(servicoId);
+                item.put("duracaoMin", duracaoMin);
+            }
 
+            return objectMapper.writeValueAsString(root);
+
+        } catch (Exception e) {
+            throw new BusinessException("Erro ao salvar preferências do funcionário.");
+        }
+    }
 }

@@ -1,6 +1,5 @@
 package br.com.bravvo.api.entity;
 
-import br.com.bravvo.api.enums.PerfilUser;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -15,7 +14,13 @@ public class User {
     @Column(nullable = false, length = 120)
     private String nome;
 
-    @Column(length = 180, unique = true)
+    /**
+     * IMPORTANTE:
+     * - Em multi-tenant com vínculo em estabelecimento_users, o email PODE repetir em tenants diferentes.
+     * - Se no banco existir UNIQUE(email), você precisa remover essa constraint no seu contract.
+     * - Aqui removi unique=true para alinhar com o modelo multi-tenant real.
+     */
+    @Column(length = 180)
     private String email;
 
     @Column(length = 30)
@@ -24,29 +29,21 @@ public class User {
     @Column(name = "senha_hash", nullable = false, length = 255)
     private String senhaHash;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private PerfilUser perfil;
-
     @Column(nullable = false)
     private Boolean ativo = true;
+
+    @Column(name = "email_verificado")
+    private boolean emailVerificado;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
-    
-    @Column(name = "estabelecimento_id")
-    private Long estabelecimentoId;
-    
-    @Column(name = "email_verificado")
-    private boolean emailVerificado;
 
     // =========================
     // Callbacks JPA
     // =========================
-
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
@@ -61,7 +58,6 @@ public class User {
     // =========================
     // Getters and Setters
     // =========================
-
     public Long getId() {
         return id;
     }
@@ -98,14 +94,6 @@ public class User {
         this.senhaHash = senhaHash;
     }
 
-    public PerfilUser getPerfil() {
-        return perfil;
-    }
-
-    public void setPerfil(PerfilUser perfil) {
-        this.perfil = perfil;
-    }
-
     public Boolean getAtivo() {
         return ativo;
     }
@@ -114,27 +102,19 @@ public class User {
         this.ativo = ativo;
     }
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-    
-    public Long getEstabelecimentoId() {
-        return estabelecimentoId;
-    }
-
-    public void setEstabelecimentoId(Long estabelecimentoId) {
-        this.estabelecimentoId = estabelecimentoId;
-    }
-
     public boolean isEmailVerificado() {
         return emailVerificado;
     }
 
     public void setEmailVerificado(boolean emailVerificado) {
         this.emailVerificado = emailVerificado;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
     }
 }

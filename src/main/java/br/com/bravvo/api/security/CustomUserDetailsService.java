@@ -10,35 +10,26 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/**
- * Ensina o Spring Security a buscar o usuário no banco.
- *
- * Padrão:
- * - subject do JWT = email
- * - authorities = ROLE_<PERFIL>
- *
- * Multi-tenant:
- * - perfil vem do vínculo estabelecimento_users (fonte de verdade)
- */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
     private final EstabelecimentoUserRepository estabelecimentoUserRepository;
 
-    public CustomUserDetailsService(UserRepository userRepository,
-                                    EstabelecimentoUserRepository estabelecimentoUserRepository) {
+    public CustomUserDetailsService(
+            UserRepository userRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository
+    ) {
         this.userRepository = userRepository;
         this.estabelecimentoUserRepository = estabelecimentoUserRepository;
     }
 
     /**
-     * Mantido para compatibilidade (se algum fluxo ainda usar).
-     * ATENÇÃO: em cenário com e-mail repetido em tenants diferentes, findByEmail pode ser ambíguo.
+     * Mantido para compatibilidade, mas NÃO deve ser usado para fluxo multi-tenant.
+     * (Em multi-tenant real, email pode existir em mais de um tenant).
      */
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado."));
 
@@ -46,24 +37,24 @@ public class CustomUserDetailsService implements UserDetailsService {
             throw new UsernameNotFoundException("Usuário inativo.");
         }
 
-        // Fallback: usa perfil do user enquanto não houver estabelecimentoId para resolver vínculo.
+        // Sem tenant não dá pra definir o perfil do vínculo corretamente.
+        // Mantém um fallback mínimo.
         return new org.springframework.security.core.userdetails.User(
                 user.getEmail(),
                 user.getSenhaHash(),
-                List.of(new SimpleGrantedAuthority("ROLE_" + user.getPerfil().name()))
+                List.of(new SimpleGrantedAuthority("ROLE_CLIENTE"))
         );
     }
 
     /**
-     * Multi-tenant: carrega por e-mail + estabelecimento_id.
-     * Aqui garantimos:
-     * - usuário ativo
-     * - vínculo ativo
-     * - authority baseada no perfil do vínculo
+     * Multi-tenant: carrega por e-mail + estabelecimentoId.
+     * - user vem por join do vínculo
+     * - authority vem do perfil do vínculo
      */
-    public UserDetails loadUserByEmailAndEstabelecimentoId(String email, Long estabelecimentoId) throws UsernameNotFoundException {
+    public UserDetails loadUserByEmailAndEstabelecimentoId(String email, Long estabelecimentoId)
+            throws UsernameNotFoundException {
 
-        User user = userRepository.findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
+        User user = userRepository.findByEstabelecimentoIdAndEmailViaLink(estabelecimentoId, email)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado neste estabelecimento."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {

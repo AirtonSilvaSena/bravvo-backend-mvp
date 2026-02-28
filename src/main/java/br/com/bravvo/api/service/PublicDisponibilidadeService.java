@@ -1,6 +1,7 @@
 package br.com.bravvo.api.service;
 
 import br.com.bravvo.api.dto.publico.PublicDisponibilidadeResponseDTO;
+import br.com.bravvo.api.entity.EstabelecimentoUser;
 import br.com.bravvo.api.entity.FuncionarioAgenda;
 import br.com.bravvo.api.entity.FuncionarioPrefs;
 import br.com.bravvo.api.enums.PerfilUser;
@@ -18,211 +19,231 @@ import java.util.*;
 /**
  * Service responsável por calcular a disponibilidade pública:
  *
- * Considera: - agenda semanal (funcionario_agenda) - bloqueios pontuais
- * (funcionario_bloqueios) - agendamentos existentes (agendamentos) - duração
- * resolvida (funcionario_prefs -> fallback servico.duracaoMin)
+ * Considera:
+ * - agenda semanal (funcionario_agenda)
+ * - bloqueios pontuais (funcionario_bloqueios)
+ * - agendamentos existentes (agendamentos)
+ * - duração resolvida (funcionario_prefs -> fallback servico.duracaoMin)
+ *
+ * Multi-tenant:
+ * - Perfil de funcionário é validado via vínculo estabelecimento_users no estabelecimento atual.
  *
  * Endpoint consumidor: GET /api/public/disponibilidade
  */
 @Service
 public class PublicDisponibilidadeService {
 
-	private static final DateTimeFormatter HHMM = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter HHMM = DateTimeFormatter.ofPattern("HH:mm");
 
-	private final ServicoRepository servicoRepository;
-	private final UserRepository userRepository;
-	private final FuncionarioServicoRepository funcionarioServicoRepository;
-	private final FuncionarioPrefsRepository funcionarioPrefsRepository;
-	private final FuncionarioAgendaRepository funcionarioAgendaRepository;
-	private final FuncionarioBloqueioRepository funcionarioBloqueioRepository;
-	private final AgendamentoRepository agendamentoRepository;
+    private final ServicoRepository servicoRepository;
+    private final UserRepository userRepository;
+    private final EstabelecimentoUserRepository estabelecimentoUserRepository;
+    private final FuncionarioServicoRepository funcionarioServicoRepository;
+    private final FuncionarioPrefsRepository funcionarioPrefsRepository;
+    private final FuncionarioAgendaRepository funcionarioAgendaRepository;
+    private final FuncionarioBloqueioRepository funcionarioBloqueioRepository;
+    private final AgendamentoRepository agendamentoRepository;
 
-	private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
 
-	public PublicDisponibilidadeService(ServicoRepository servicoRepository, UserRepository userRepository,
-			FuncionarioServicoRepository funcionarioServicoRepository,
-			FuncionarioPrefsRepository funcionarioPrefsRepository,
-			FuncionarioAgendaRepository funcionarioAgendaRepository,
-			FuncionarioBloqueioRepository funcionarioBloqueioRepository, AgendamentoRepository agendamentoRepository,
-			ObjectMapper objectMapper) {
-		this.servicoRepository = servicoRepository;
-		this.userRepository = userRepository;
-		this.funcionarioServicoRepository = funcionarioServicoRepository;
-		this.funcionarioPrefsRepository = funcionarioPrefsRepository;
-		this.funcionarioAgendaRepository = funcionarioAgendaRepository;
-		this.funcionarioBloqueioRepository = funcionarioBloqueioRepository;
-		this.agendamentoRepository = agendamentoRepository;
-		this.objectMapper = objectMapper;
-	}
+    public PublicDisponibilidadeService(
+            ServicoRepository servicoRepository,
+            UserRepository userRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository,
+            FuncionarioServicoRepository funcionarioServicoRepository,
+            FuncionarioPrefsRepository funcionarioPrefsRepository,
+            FuncionarioAgendaRepository funcionarioAgendaRepository,
+            FuncionarioBloqueioRepository funcionarioBloqueioRepository,
+            AgendamentoRepository agendamentoRepository,
+            ObjectMapper objectMapper
+    ) {
+        this.servicoRepository = servicoRepository;
+        this.userRepository = userRepository;
+        this.estabelecimentoUserRepository = estabelecimentoUserRepository;
+        this.funcionarioServicoRepository = funcionarioServicoRepository;
+        this.funcionarioPrefsRepository = funcionarioPrefsRepository;
+        this.funcionarioAgendaRepository = funcionarioAgendaRepository;
+        this.funcionarioBloqueioRepository = funcionarioBloqueioRepository;
+        this.agendamentoRepository = agendamentoRepository;
+        this.objectMapper = objectMapper;
+    }
 
-	public PublicDisponibilidadeResponseDTO getDisponibilidade(Long servicoId, Long funcionarioId, LocalDate data) {
+    /**
+     * Disponibilidade pública precisa do estabelecimentoId (resolvido por slug antes).
+     */
+    public PublicDisponibilidadeResponseDTO getDisponibilidade(
+            Long estabelecimentoId,
+            Long servicoId,
+            Long funcionarioId,
+            LocalDate data
+    ) {
 
-		// =========================
-		// 1) Valida serviço (existe e ATIVO)
-		// =========================
-		var servico = servicoRepository.findById(servicoId)
-				.orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
+        // =========================
+        // 1) Valida serviço (existe e ATIVO)
+        // =========================
+        var servico = servicoRepository.findById(servicoId)
+                .orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
 
-		if (servico.getStatus() != StatusServico.ATIVO) {
-			// catálogo público: "indisponível" -> lista vazia
-			return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
-		}
+        if (servico.getStatus() != StatusServico.ATIVO) {
+            return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
+        }
 
-		// =========================
-		// 2) Valida funcionário (existe, ativo e perfil FUNCIONARIO)
-		// =========================
-		var funcionario = userRepository.findById(funcionarioId)
-				.orElseThrow(() -> new NotFoundException("Funcionário não encontrado."));
+        // =========================
+        // 2) Valida funcionário (existe, ativo e perfil FUNCIONARIO NO TENANT)
+        // =========================
+        var funcionario = userRepository.findById(funcionarioId)
+                .orElseThrow(() -> new NotFoundException("Funcionário não encontrado."));
 
-		if (!Boolean.TRUE.equals(funcionario.getAtivo())) {
-			return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
-		}
-		if (funcionario.getPerfil() != PerfilUser.FUNCIONARIO) {
-			return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
-		}
+        if (!Boolean.TRUE.equals(funcionario.getAtivo())) {
+            return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
+        }
 
-		// =========================
-		// 3) Valida se serviço está habilitado para o funcionário
-		// =========================
-		boolean habilitado = funcionarioServicoRepository.existsByIdFuncionarioIdAndIdServicoId(funcionarioId,
-				servicoId);
-		if (!habilitado) {
-			return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
-		}
+        // PERFIL (novo): via vínculo estabelecimento_users
+        if (estabelecimentoId == null) {
+            return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
+        }
 
-		// =========================
-		// 4) Resolve duração do serviço (prefs_json -> fallback duração padrão)
-		// =========================
-		int duracaoMin = resolveDuracaoMin(funcionarioId, servicoId, servico.getDuracaoMin());
+        EstabelecimentoUser vinculo = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, funcionarioId)
+                .orElse(null);
 
-		// =========================
-		// 5) Busca agenda do dia (dia_semana 1..7)
-		// =========================
-		int diaSemana = data.getDayOfWeek().getValue(); // 1=Seg ... 7=Dom (igual sua doc)
+        if (vinculo == null || Boolean.FALSE.equals(vinculo.getAtivo()) || vinculo.getPerfil() != PerfilUser.FUNCIONARIO) {
+            return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
+        }
 
-		FuncionarioAgenda agenda = funcionarioAgendaRepository
-				.findById(new br.com.bravvo.api.entity.FuncionarioAgendaId(funcionarioId, diaSemana)).orElse(null);
+        // =========================
+        // 3) Valida se serviço está habilitado para o funcionário
+        // =========================
+        boolean habilitado = funcionarioServicoRepository.existsByIdFuncionarioIdAndIdServicoId(funcionarioId, servicoId);
+        if (!habilitado) {
+            return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
+        }
 
-		if (agenda == null || !Boolean.TRUE.equals(agenda.getAtivo())) {
-			return new PublicDisponibilidadeResponseDTO(data, duracaoMin, List.of());
-		}
+        // =========================
+        // 4) Resolve duração do serviço (prefs_json -> fallback duração padrão)
+        // =========================
+        int duracaoMin = resolveDuracaoMin(funcionarioId, servicoId, servico.getDuracaoMin());
 
-		// monta janelas do dia (até 2)
-		List<Intervalo> janelas = new ArrayList<>();
-		addJanelaIfValid(janelas, data, agenda.getInicio1(), agenda.getFim1());
-		addJanelaIfValid(janelas, data, agenda.getInicio2(), agenda.getFim2());
+        // =========================
+        // 5) Busca agenda do dia (dia_semana 1..7)
+        // =========================
+        int diaSemana = data.getDayOfWeek().getValue(); // 1=Seg ... 7=Dom
 
-		if (janelas.isEmpty()) {
-			return new PublicDisponibilidadeResponseDTO(data, duracaoMin, List.of());
-		}
+        FuncionarioAgenda agenda = funcionarioAgendaRepository
+                .findById(new br.com.bravvo.api.entity.FuncionarioAgendaId(funcionarioId, diaSemana))
+                .orElse(null);
 
-		// =========================
-		// 6) Carrega indisponibilidades do dia: bloqueios + agendamentos
-		// =========================
-		LocalDateTime from = data.atStartOfDay();
-		LocalDateTime to = data.plusDays(1).atStartOfDay();
+        if (agenda == null || !Boolean.TRUE.equals(agenda.getAtivo())) {
+            return new PublicDisponibilidadeResponseDTO(data, duracaoMin, List.of());
+        }
 
-		var bloqueios = funcionarioBloqueioRepository.findOverlapping(funcionarioId, from, to);
-		var agendamentos = agendamentoRepository.findBlockingOverlapping(funcionarioId, from, to);
+        // monta janelas do dia (até 2)
+        List<Intervalo> janelas = new ArrayList<>();
+        addJanelaIfValid(janelas, data, agenda.getInicio1(), agenda.getFim1());
+        addJanelaIfValid(janelas, data, agenda.getInicio2(), agenda.getFim2());
 
-		List<Intervalo> indisponiveis = new ArrayList<>();
+        if (janelas.isEmpty()) {
+            return new PublicDisponibilidadeResponseDTO(data, duracaoMin, List.of());
+        }
 
-		bloqueios.forEach(b -> indisponiveis.add(new Intervalo(b.getStartDt(), b.getEndDt())));
-		agendamentos.forEach(a -> indisponiveis.add(new Intervalo(a.getInicio(), a.getFim())));
+        // =========================
+        // 6) Carrega indisponibilidades do dia: bloqueios + agendamentos
+        // =========================
+        LocalDateTime from = data.atStartOfDay();
+        LocalDateTime to = data.plusDays(1).atStartOfDay();
 
-		// =========================
-		// 7) Gera slots (step 15m) e filtra conflito
-		// =========================
-		Duration duracao = Duration.ofMinutes(duracaoMin);
-		List<String> horarios = new ArrayList<>();
+        var bloqueios = funcionarioBloqueioRepository.findOverlapping(funcionarioId, from, to);
+        var agendamentos = agendamentoRepository.findBlockingOverlapping(funcionarioId, from, to);
 
-		for (Intervalo janela : janelas) {
+        List<Intervalo> indisponiveis = new ArrayList<>();
+        bloqueios.forEach(b -> indisponiveis.add(new Intervalo(b.getStartDt(), b.getEndDt())));
+        agendamentos.forEach(a -> indisponiveis.add(new Intervalo(a.getInicio(), a.getFim())));
 
-			// primeiro slot começa no início da janela
-			LocalDateTime slotStart = janela.start;
+        // =========================
+        // 7) Gera slots (step = duracaoMin, como estava no seu código)
+        // =========================
+        Duration duracao = Duration.ofMinutes(duracaoMin);
+        List<String> horarios = new ArrayList<>();
 
-			// último início permitido = fimJanela - duracao
-			LocalDateTime lastStart = janela.end.minus(duracao);
+        for (Intervalo janela : janelas) {
 
-			while (!slotStart.isAfter(lastStart)) {
+            LocalDateTime slotStart = janela.start;
+            LocalDateTime lastStart = janela.end.minus(duracao);
 
-				LocalDateTime slotEnd = slotStart.plus(duracao);
+            while (!slotStart.isAfter(lastStart)) {
 
-				if (!intersectsAny(slotStart, slotEnd, indisponiveis)) {
-					horarios.add(slotStart.toLocalTime().format(HHMM));
-				}
+                LocalDateTime slotEnd = slotStart.plus(duracao);
 
-				slotStart = slotStart.plusMinutes(duracaoMin);
-			}
-		}
+                if (!intersectsAny(slotStart, slotEnd, indisponiveis)) {
+                    horarios.add(slotStart.toLocalTime().format(HHMM));
+                }
 
-		return new PublicDisponibilidadeResponseDTO(data, duracaoMin, horarios);
-	}
+                slotStart = slotStart.plusMinutes(duracaoMin);
+            }
+        }
 
-	// ==========================================================
-	// Auxiliares
-	// ==========================================================
+        return new PublicDisponibilidadeResponseDTO(data, duracaoMin, horarios);
+    }
 
-	private void addJanelaIfValid(List<Intervalo> janelas, LocalDate data, LocalTime inicio, LocalTime fim) {
-		if (inicio == null || fim == null)
-			return;
-		if (!fim.isAfter(inicio))
-			return;
-		janelas.add(new Intervalo(LocalDateTime.of(data, inicio), LocalDateTime.of(data, fim)));
-	}
+    // ==========================================================
+    // Auxiliares
+    // ==========================================================
 
-	/**
-	 * Resolve duração do serviço para o funcionário (mesma ideia que você já usa).
-	 *
-	 * Formato: { "servicos": { "16": { "duracaoMin": 60 } } }
-	 */
-	private int resolveDuracaoMin(Long funcionarioId, Long servicoId, Integer fallback) {
+    private void addJanelaIfValid(List<Intervalo> janelas, LocalDate data, LocalTime inicio, LocalTime fim) {
+        if (inicio == null || fim == null) return;
+        if (!fim.isAfter(inicio)) return;
+        janelas.add(new Intervalo(LocalDateTime.of(data, inicio), LocalDateTime.of(data, fim)));
+    }
 
-		Optional<FuncionarioPrefs> prefsOpt = funcionarioPrefsRepository.findById(funcionarioId);
+    /**
+     * Resolve duração do serviço para o funcionário.
+     *
+     * Formato: { "servicos": { "16": { "duracaoMin": 60 } } }
+     */
+    private int resolveDuracaoMin(Long funcionarioId, Long servicoId, Integer fallback) {
 
-		if (prefsOpt.isEmpty() || prefsOpt.get().getPrefsJson() == null || prefsOpt.get().getPrefsJson().isBlank()) {
-			return fallback;
-		}
+        Optional<FuncionarioPrefs> prefsOpt = funcionarioPrefsRepository.findById(funcionarioId);
 
-		try {
-			JsonNode root = objectMapper.readTree(prefsOpt.get().getPrefsJson());
+        if (prefsOpt.isEmpty() || prefsOpt.get().getPrefsJson() == null || prefsOpt.get().getPrefsJson().isBlank()) {
+            return fallback;
+        }
 
-			JsonNode duracaoNode = root.path("servicos").path(String.valueOf(servicoId)).path("duracaoMin");
+        try {
+            JsonNode root = objectMapper.readTree(prefsOpt.get().getPrefsJson());
+            JsonNode duracaoNode = root.path("servicos").path(String.valueOf(servicoId)).path("duracaoMin");
 
-			if (duracaoNode != null && duracaoNode.isInt()) {
-				int v = duracaoNode.asInt();
-				return v >= 1 ? v : fallback;
-			}
+            if (duracaoNode != null && duracaoNode.isInt()) {
+                int v = duracaoNode.asInt();
+                return v >= 1 ? v : fallback;
+            }
 
-			return fallback;
-		} catch (Exception e) {
-			// IMPORTANTE: disponibilidade pública não pode quebrar por prefs_json inválido
-			return fallback;
-		}
-	}
+            return fallback;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
 
-	private boolean intersectsAny(LocalDateTime start, LocalDateTime end, List<Intervalo> intervals) {
-		for (Intervalo i : intervals) {
-			if (i.intersects(start, end))
-				return true;
-		}
-		return false;
-	}
+    private boolean intersectsAny(LocalDateTime start, LocalDateTime end, List<Intervalo> intervals) {
+        for (Intervalo i : intervals) {
+            if (i.intersects(start, end)) return true;
+        }
+        return false;
+    }
 
-	/**
-	 * Intervalo [start, end) para checar interseção.
-	 */
-	private static class Intervalo {
-		private final LocalDateTime start;
-		private final LocalDateTime end;
+    /**
+     * Intervalo [start, end) para checar interseção.
+     */
+    private static class Intervalo {
+        private final LocalDateTime start;
+        private final LocalDateTime end;
 
-		private Intervalo(LocalDateTime start, LocalDateTime end) {
-			this.start = start;
-			this.end = end;
-		}
+        private Intervalo(LocalDateTime start, LocalDateTime end) {
+            this.start = start;
+            this.end = end;
+        }
 
-		private boolean intersects(LocalDateTime otherStart, LocalDateTime otherEnd) {
-			return start.isBefore(otherEnd) && end.isAfter(otherStart);
-		}
-	}
+        private boolean intersects(LocalDateTime otherStart, LocalDateTime otherEnd) {
+            return start.isBefore(otherEnd) && end.isAfter(otherStart);
+        }
+    }
 }

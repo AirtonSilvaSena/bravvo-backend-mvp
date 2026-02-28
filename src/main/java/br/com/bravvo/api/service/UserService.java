@@ -4,17 +4,20 @@ import br.com.bravvo.api.dto.common.PagedResponseDTO;
 import br.com.bravvo.api.dto.user.UserCreateRequestDTO;
 import br.com.bravvo.api.dto.user.UserResponseDTO;
 import br.com.bravvo.api.dto.user.UserUpdateRequestDTO;
+import br.com.bravvo.api.entity.EstabelecimentoUser;
 import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.mapper.UserMapper;
+import br.com.bravvo.api.repository.EstabelecimentoUserRepository;
 import br.com.bravvo.api.repository.UserRepository;
+import br.com.bravvo.api.security.TenantContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;   // <<< ESTE é o Pageable correto
-import org.springframework.data.domain.Sort;       // <<< faltava
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -26,10 +29,16 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final EstabelecimentoUserRepository estabelecimentoUserRepository;
     private final BCryptPasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder) {
+    public UserService(
+            UserRepository userRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository,
+            BCryptPasswordEncoder passwordEncoder
+    ) {
         this.userRepository = userRepository;
+        this.estabelecimentoUserRepository = estabelecimentoUserRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -45,13 +54,14 @@ public class UserService {
             throw new ForbiddenException("Usuário não autenticado.");
         }
 
-        boolean isAdmin = authentication.getAuthorities()
-                .stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String emailLogado = TenantContext.getEmailOrThrow();
 
-        boolean isFuncionario = authentication.getAuthorities()
-                .stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_FUNCIONARIO"));
+        // Perfil agora vem do vínculo no tenant
+        EstabelecimentoUser callerLink = getLinkByTenantAndEmailOrThrow(estabelecimentoId, emailLogado);
+
+        boolean isAdmin = callerLink.getPerfil() == PerfilUser.ADMIN;
+        boolean isFuncionario = callerLink.getPerfil() == PerfilUser.FUNCIONARIO;
 
         // CLIENTE não pode criar usuário
         if (!isAdmin && !isFuncionario) {
@@ -81,23 +91,47 @@ public class UserService {
         }
 
         // ===============================
-        // 3) Fluxo atual (inalterado)
+        // 3) Fluxo atual (ajuste multi-tenant)
         // ===============================
-        if (userRepository.existsByEmail(dto.getEmail())) {
-            throw new BusinessException("Já existe um usuário com este e-mail.");
+        // Agora duplicidade é por tenant:
+        // - user é global, então:
+        //   a) pega/ cria user por email
+        //   b) valida se já existe vínculo com esse estabelecimento
+        String emailNovo = dto.getEmail() == null ? "" : dto.getEmail().trim().toLowerCase();
+        if (emailNovo.isBlank()) throw new BusinessException("E-mail é obrigatório.");
+
+        User user = userRepository.findByEmail(emailNovo).orElse(null);
+
+        if (user != null) {
+            // user existe globalmente -> checa se já tem vínculo nesse tenant
+            boolean jaVinculado = estabelecimentoUserRepository.existsByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId());
+            if (jaVinculado) {
+                throw new BusinessException("Já existe um usuário com este e-mail neste estabelecimento.");
+            }
+        } else {
+            // cria user global
+            user = UserMapper.toEntity(dto);
+            user.setEmail(emailNovo);
+
+            String hash = passwordEncoder.encode(dto.getSenha());
+            user.setSenhaHash(hash);
+            user = userRepository.save(user);
         }
 
-        User user = UserMapper.toEntity(dto);
+        // cria vínculo no tenant com o perfil do DTO
+        EstabelecimentoUser link = new EstabelecimentoUser();
+        link.setEstabelecimentoId(estabelecimentoId);
+        link.setUserId(user.getId());
+        link.setPerfil(dto.getPerfil());
+        link.setAtivo(true);
+        estabelecimentoUserRepository.save(link);
 
-        String hash = passwordEncoder.encode(dto.getSenha());
-        user.setSenhaHash(hash);
-
-        User saved = userRepository.save(user);
-        return UserMapper.toResponse(saved);
+        return UserMapper.toResponse(user);
     }
 
     @Transactional(readOnly = true)
     public UserResponseDTO getById(Long id) {
+        // mantém comportamento anterior (busca user global)
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
 
@@ -106,7 +140,8 @@ public class UserService {
 
     /**
      * Mantive o listAll como você tinha.
-     * OBS: se o Controller trocar para paginação, este método pode deixar de ser usado.
+     * OBS: com multi-tenant, isso lista users globais e pode não ser desejado.
+     * Estou mantendo porque você pediu ajustar só getperfil/search.
      */
     @Transactional(readOnly = true)
     public List<UserResponseDTO> listAll() {
@@ -120,7 +155,7 @@ public class UserService {
     public UserResponseDTO update(Long id, UserUpdateRequestDTO dto) {
 
         // ===============================
-        // 1) Identifica o usuário logado
+        // 1) Identifica o usuário logado (perfil via vínculo)
         // ===============================
         var authentication = SecurityContextHolder.getContext().getAuthentication();
 
@@ -128,13 +163,13 @@ public class UserService {
             throw new ForbiddenException("Usuário não autenticado.");
         }
 
-        boolean isAdmin = authentication.getAuthorities()
-                .stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String emailLogado = TenantContext.getEmailOrThrow();
 
-        boolean isFuncionario = authentication.getAuthorities()
-                .stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_FUNCIONARIO"));
+        EstabelecimentoUser callerLink = getLinkByTenantAndEmailOrThrow(estabelecimentoId, emailLogado);
+
+        boolean isAdmin = callerLink.getPerfil() == PerfilUser.ADMIN;
+        boolean isFuncionario = callerLink.getPerfil() == PerfilUser.FUNCIONARIO;
 
         // CLIENTE não pode atualizar usuário
         if (!isAdmin && !isFuncionario) {
@@ -142,25 +177,27 @@ public class UserService {
         }
 
         // ===============================
-        // 2) Busca o alvo e aplica regra
+        // 2) Busca o alvo e aplica regra (perfil via vínculo do alvo)
         // ===============================
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
 
+        EstabelecimentoUser targetLink = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                .orElseThrow(() -> new ForbiddenException("Usuário não pertence a este estabelecimento."));
+
         // FUNCIONARIO só pode atualizar CLIENTE
-        if (isFuncionario && user.getPerfil() != PerfilUser.CLIENTE) {
+        if (isFuncionario && targetLink.getPerfil() != PerfilUser.CLIENTE) {
             throw new ForbiddenException("Funcionário só pode atualizar usuários com perfil CLIENTE.");
         }
 
         // ===============================
         // 3) Regras extras (perfil)
         // ===============================
-        // Se o seu UserUpdateRequestDTO tiver "perfil", bloqueia mudança para ADMIN via API
         if (dto.getPerfil() != null && dto.getPerfil() == PerfilUser.ADMIN) {
             throw new ForbiddenException("Não é permitido definir perfil ADMIN via API.");
         }
 
-        // (opcional recomendado) Se FUNCIONARIO tentar mudar perfil do CLIENTE para FUNCIONARIO, bloqueia
         if (isFuncionario && dto.getPerfil() != null && dto.getPerfil() != PerfilUser.CLIENTE) {
             throw new ForbiddenException("Funcionário não pode alterar perfil do usuário para outro diferente de CLIENTE.");
         }
@@ -169,12 +206,21 @@ public class UserService {
         // 4) Fluxo atual (inalterado)
         // ===============================
 
-        // se mudou email, valida duplicidade
+        // se mudou email, valida duplicidade global + vínculo
         String emailAtual = user.getEmail();
         if (dto.getEmail() != null && !dto.getEmail().equalsIgnoreCase(emailAtual)) {
-            if (userRepository.existsByEmail(dto.getEmail())) {
-                throw new BusinessException("Já existe um usuário com este e-mail.");
+            String novoEmail = dto.getEmail().trim().toLowerCase();
+
+            User existing = userRepository.findByEmail(novoEmail).orElse(null);
+            if (existing != null && !existing.getId().equals(user.getId())) {
+                boolean vinculadoNoTenant = estabelecimentoUserRepository
+                        .existsByEstabelecimentoIdAndUserId(estabelecimentoId, existing.getId());
+                if (vinculadoNoTenant) {
+                    throw new BusinessException("Já existe um usuário com este e-mail neste estabelecimento.");
+                }
             }
+
+            user.setEmail(novoEmail);
         }
 
         UserMapper.updateEntity(user, dto);
@@ -184,17 +230,30 @@ public class UserService {
             user.setSenhaHash(passwordEncoder.encode(dto.getSenha()));
         }
 
+        // se veio perfil, atualiza no vínculo do tenant
+        if (dto.getPerfil() != null) {
+            targetLink.setPerfil(dto.getPerfil());
+            estabelecimentoUserRepository.save(targetLink);
+        }
+
         User saved = userRepository.save(user);
         return UserMapper.toResponse(saved);
     }
 
     @Transactional
     public void inactivate(Long id) {
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
 
-        user.setAtivo(false);
-        userRepository.save(user);
+        EstabelecimentoUser link = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                .orElseThrow(() -> new ForbiddenException("Usuário não pertence a este estabelecimento."));
+
+        // Inativa no vínculo do tenant (mais correto no multi-tenant)
+        link.setAtivo(false);
+        estabelecimentoUserRepository.save(link);
     }
 
     @Transactional(readOnly = true)
@@ -210,13 +269,15 @@ public class UserService {
             throw new ForbiddenException("Sem permissão para listar usuários.");
         }
 
-        boolean isAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String emailLogado = TenantContext.getEmailOrThrow();
 
-        boolean isFuncionario = auth.getAuthorities().stream()
-                .anyMatch(a -> "ROLE_FUNCIONARIO".equals(a.getAuthority()));
+        // Perfil agora via vínculo
+        EstabelecimentoUser callerLink = getLinkByTenantAndEmailOrThrow(estabelecimentoId, emailLogado);
 
-        // CLIENTE não lista usuários
+        boolean isAdmin = callerLink.getPerfil() == PerfilUser.ADMIN;
+        boolean isFuncionario = callerLink.getPerfil() == PerfilUser.FUNCIONARIO;
+
         if (!isAdmin && !isFuncionario) {
             throw new ForbiddenException("Sem permissão para listar usuários.");
         }
@@ -226,10 +287,9 @@ public class UserService {
             if (perfil != null && perfil != PerfilUser.CLIENTE) {
                 throw new ForbiddenException("Funcionário só pode listar clientes.");
             }
-            perfil = PerfilUser.CLIENTE; // força o filtro, mesmo se não vier perfil
+            perfil = PerfilUser.CLIENTE;
         }
 
-        // Defaults e proteção básica
         int safePage = (page == null || page < 1) ? 1 : page;
         int safeLimit = (limit == null || limit < 1) ? 10 : Math.min(limit, 100);
 
@@ -239,7 +299,14 @@ public class UserService {
                 Sort.by(Sort.Direction.DESC, "id")
         );
 
-        Page<User> result = userRepository.search(perfil, ativo, q, pageable);
+        // ✅ Aqui muda: search agora é pelo vínculo (tenant) + join no User
+        Page<User> result = estabelecimentoUserRepository.searchUsersByTenant(
+                estabelecimentoId,
+                perfil,
+                ativo,
+                q,
+                pageable
+        );
 
         int pages = result.getTotalPages();
         long total = result.getTotalElements();
@@ -255,5 +322,25 @@ public class UserService {
                 pages,
                 items
         );
+    }
+
+    // ==========================================================
+    // Helpers
+    // ==========================================================
+
+    /**
+     * Busca vínculo do caller no tenant atual a partir do email do JWT.
+     * Implementação: precisa ser um @Query com JOIN em User (porque vínculo não tem email).
+     */
+    private EstabelecimentoUser getLinkByTenantAndEmailOrThrow(Long estabelecimentoId, String email) {
+        EstabelecimentoUser link = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
+                .orElseThrow(() -> new ForbiddenException("Usuário não encontrado neste estabelecimento."));
+
+        if (Boolean.FALSE.equals(link.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
+
+        return link;
     }
 }

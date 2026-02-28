@@ -3,11 +3,13 @@ package br.com.bravvo.api.service;
 import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoMeResponseDTO;
 import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoMeUpdateRequestDTO;
 import br.com.bravvo.api.entity.Estabelecimentos;
+import br.com.bravvo.api.entity.EstabelecimentoUser;
 import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.repository.EstabelecimentoRepository;
+import br.com.bravvo.api.repository.EstabelecimentoUserRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.security.TenantContext;
 import jakarta.transaction.Transactional;
@@ -20,29 +22,23 @@ public class EstabelecimentosAdminService {
 
     private final UserRepository userRepository;
     private final EstabelecimentoRepository estabelecimentoRepository;
+    private final EstabelecimentoUserRepository estabelecimentoUserRepository;
 
     public EstabelecimentosAdminService(
             UserRepository userRepository,
-            EstabelecimentoRepository estabelecimentoRepository
+            EstabelecimentoRepository estabelecimentoRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository
     ) {
         this.userRepository = userRepository;
         this.estabelecimentoRepository = estabelecimentoRepository;
+        this.estabelecimentoUserRepository = estabelecimentoUserRepository;
     }
 
     public EstabelecimentoMeResponseDTO getMe() {
-        User admin = getAuthenticatedAdminOrThrow();
+        // valida auth + tenant + ADMIN via vínculo
+        AuthCtx ctx = getAuthenticatedAdminCtxOrThrow();
 
-        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
-
-        // Recomendado: garante que o token está no mesmo tenant do usuário no banco
-        if (admin.getEstabelecimentoId() == null) {
-            throw new ForbiddenException("Usuário não possui estabelecimento associado.");
-        }
-        if (!admin.getEstabelecimentoId().equals(estabelecimentoId)) {
-            throw new ForbiddenException("Token não pertence a este estabelecimento.");
-        }
-
-        Estabelecimentos est = estabelecimentoRepository.findById(estabelecimentoId)
+        Estabelecimentos est = estabelecimentoRepository.findById(ctx.estabelecimentoId())
                 .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
 
         return toMeResponse(est);
@@ -50,18 +46,10 @@ public class EstabelecimentosAdminService {
 
     @Transactional
     public EstabelecimentoMeResponseDTO updateMe(EstabelecimentoMeUpdateRequestDTO dto) {
-        User admin = getAuthenticatedAdminOrThrow();
+        // valida auth + tenant + ADMIN via vínculo
+        AuthCtx ctx = getAuthenticatedAdminCtxOrThrow();
 
-        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
-
-        if (admin.getEstabelecimentoId() == null) {
-            throw new ForbiddenException("Usuário não possui estabelecimento associado.");
-        }
-        if (!admin.getEstabelecimentoId().equals(estabelecimentoId)) {
-            throw new ForbiddenException("Token não pertence a este estabelecimento.");
-        }
-
-        Estabelecimentos est = estabelecimentoRepository.findById(estabelecimentoId)
+        Estabelecimentos est = estabelecimentoRepository.findById(ctx.estabelecimentoId())
                 .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
 
         // Atualiza somente campos permitidos (slug e assinatura ficam imutáveis aqui)
@@ -79,23 +67,41 @@ public class EstabelecimentosAdminService {
         return toMeResponse(est);
     }
 
-    private User getAuthenticatedAdminOrThrow() {
+    /**
+     * Multi-tenant (padrão novo):
+     * - Tenant vem do JWT (TenantContext).
+     * - Perfil vem do vínculo estabelecimento_users.
+     * - Valida: vínculo ativo + user ativo + perfil ADMIN.
+     */
+    private AuthCtx getAuthenticatedAdminCtxOrThrow() {
         Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
         String email = TenantContext.getEmailOrThrow();
 
-        User user = userRepository
+        // 1) encontra vínculo do usuário logado no tenant atual (por email -> userId)
+        // Como estabelecimento_users não tem email, isso precisa ser um @Query com JOIN em users.
+        EstabelecimentoUser vinculo = estabelecimentoUserRepository
                 .findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
                 .orElseThrow(() -> new NotFoundException("Usuário não encontrado neste estabelecimento."));
+
+        // 2) vínculo ativo
+        if (Boolean.FALSE.equals(vinculo.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
+
+        // 3) perfil ADMIN
+        if (vinculo.getPerfil() != PerfilUser.ADMIN) {
+            throw new ForbiddenException("Acesso permitido somente para ADMIN.");
+        }
+
+        // 4) user global ativo
+        User user = userRepository.findById(vinculo.getUserId())
+                .orElseThrow(() -> new NotFoundException("Usuário inválido para este vínculo."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {
             throw new ForbiddenException("Usuário inativo.");
         }
 
-        if (user.getPerfil() != PerfilUser.ADMIN) {
-            throw new ForbiddenException("Acesso permitido somente para ADMIN.");
-        }
-
-        return user;
+        return new AuthCtx(estabelecimentoId, user.getId(), vinculo.getId(), email);
     }
 
     /**
@@ -138,4 +144,6 @@ public class EstabelecimentosAdminService {
 
         return dto;
     }
+
+    private record AuthCtx(Long estabelecimentoId, Long userId, Long vinculoId, String email) {}
 }

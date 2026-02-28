@@ -1,6 +1,8 @@
 package br.com.bravvo.api.controller;
 
 import br.com.bravvo.api.dto.publico.PublicDisponibilidadeResponseDTO;
+import br.com.bravvo.api.exception.NotFoundException;
+import br.com.bravvo.api.repository.EstabelecimentoRepository;
 import br.com.bravvo.api.service.PublicDisponibilidadeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.*;
@@ -28,9 +30,14 @@ import java.util.Map;
 public class PublicDisponibilidadeController {
 
     private final PublicDisponibilidadeService service;
+    private final EstabelecimentoRepository estabelecimentoRepository;
 
-    public PublicDisponibilidadeController(PublicDisponibilidadeService service) {
+    public PublicDisponibilidadeController(
+            PublicDisponibilidadeService service,
+            EstabelecimentoRepository estabelecimentoRepository
+    ) {
         this.service = service;
+        this.estabelecimentoRepository = estabelecimentoRepository;
     }
 
     @Operation(
@@ -44,7 +51,7 @@ public class PublicDisponibilidadeController {
                 
                 Regras:
                 - serviço deve estar ATIVO
-                - funcionário deve estar ATIVO e perfil FUNCIONARIO
+                - funcionário deve estar ATIVO e perfil FUNCIONARIO (no tenant do slug)
                 - serviço deve estar habilitado para o funcionário
                 
                 Retorno:
@@ -61,20 +68,25 @@ public class PublicDisponibilidadeController {
             ),
             @ApiResponse(
                     responseCode = "404",
-                    description = "Serviço ou funcionário não encontrado",
+                    description = "Serviço/Funcionário/Estabelecimento não encontrado",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = Object.class))
             )
     })
     @GetMapping("/disponibilidade")
     public ResponseEntity<?> getDisponibilidade(
+            @RequestParam String slug,
             @RequestParam Long servicoId,
             @RequestParam Long funcionarioId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data
     ) {
-        PublicDisponibilidadeResponseDTO dto = service.getDisponibilidade(servicoId, funcionarioId, data);
+        String slugNorm = slug == null ? "" : slug.trim().toLowerCase();
 
-        // Mantendo padrão simples: { success, data }
+        Long estabelecimentoId = estabelecimentoRepository.findIdBySlug(slugNorm)
+                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
+
+        PublicDisponibilidadeResponseDTO dto = service.getDisponibilidade(estabelecimentoId, servicoId, funcionarioId, data);
+
         return ResponseEntity.ok(Map.of("success", true, "data", dto));
     }
 }

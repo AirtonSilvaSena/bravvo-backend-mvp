@@ -4,14 +4,28 @@ import jakarta.validation.constraints.NotBlank;
 
 public class RefreshRequestDTO {
 
-	@NotBlank(message = "Refresh token é obrigatório.")
-	private String refreshToken;
+    @NotBlank
+    private String refreshToken;
 
-	public String getRefreshToken() {
-		return refreshToken;
-	}
+    /**
+     * Necessário em multi-tenant real, pois o refresh token sozinho não define qual tenant emitir novo JWT.
+     */
+    @NotBlank
+    private String slug;
 
-	public void setRefreshToken(String refreshToken) {
-		this.refreshToken = refreshToken;
-	}
+    public String getRefreshToken() {
+        return refreshToken;
+    }
+
+    public void setRefreshToken(String refreshToken) {
+        this.refreshToken = refreshToken;
+    }
+
+    public String getSlug() {
+        return slug;
+    }
+
+    public void setSlug(String slug) {
+        this.slug = slug;
+    }
 }

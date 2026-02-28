@@ -1,9 +1,11 @@
 package br.com.bravvo.api.service;
 
-import br.com.bravvo.api.entity.Protocolo;
 import br.com.bravvo.api.dto.agendamento.*;
 import br.com.bravvo.api.entity.Agendamento;
+import br.com.bravvo.api.entity.EstabelecimentoUser;
 import br.com.bravvo.api.entity.FuncionarioPrefs;
+import br.com.bravvo.api.entity.Protocolo;
+import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import br.com.bravvo.api.enums.StatusServico;
 import br.com.bravvo.api.exception.BusinessException;
@@ -11,377 +13,429 @@ import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.mapper.AgendamentoMapper;
 import br.com.bravvo.api.repository.*;
+import br.com.bravvo.api.security.TenantContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import br.com.bravvo.api.dto.agendamento.AgendamentoItemResponseDTO;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import java.time.*;
-
-import java.util.Random;
-
 /**
  * Core único de criação de agendamento (MVP).
  *
- * Regras aplicadas aqui (para todos os perfis): - serviço deve existir e estar
- * ativo - funcionário deve existir, estar ativo, e ser perfil FUNCIONARIO -
- * funcionário deve ter o serviço habilitado (funcionario_servicos) - resolver
- * duração: prefs_json -> fallback servico.duracaoMin - calcular fim = inicio +
- * duração - validar conflito final (overlap) com agendamentos bloqueantes -
- * gerar protocolo único - persistir
- *
- * Importante: - Controllers diferentes só adaptam "quem é o cliente" e "quem é
- * o funcionário"
+ * Multi-tenant (refatorado):
+ * - Perfil NÃO é lido de User.
+ * - Perfil é validado via vínculo EstabelecimentoUser (estabelecimento_users).
+ * - Endpoints autenticados usam TenantContext para obter estabelecimentoId.
+ * - Endpoint público deve informar o estabelecimento (por slug -> id) antes de chamar aqui.
  */
 @Service
 public class AgendamentoService {
 
-	private final AgendamentoRepository agendamentoRepository;
-	private final ServicoRepository servicoRepository;
-	private final UserRepository userRepository;
-	private final FuncionarioServicoRepository funcionarioServicoRepository;
-	private final FuncionarioPrefsRepository funcionarioPrefsRepository;
-	private final ProtocoloRepository protocoloRepository;
+    private final AgendamentoRepository agendamentoRepository;
+    private final ServicoRepository servicoRepository;
+    private final UserRepository userRepository;
+    private final EstabelecimentoUserRepository estabelecimentoUserRepository;
+    private final FuncionarioServicoRepository funcionarioServicoRepository;
+    private final FuncionarioPrefsRepository funcionarioPrefsRepository;
+    private final ProtocoloRepository protocoloRepository;
 
-	private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-	private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-	private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
-	public AgendamentoService(AgendamentoRepository agendamentoRepository, ServicoRepository servicoRepository,
-			UserRepository userRepository, FuncionarioServicoRepository funcionarioServicoRepository,
-			FuncionarioPrefsRepository funcionarioPrefsRepository, ProtocoloRepository protocoloRepository) {
-		this.agendamentoRepository = agendamentoRepository;
-		this.servicoRepository = servicoRepository;
-		this.userRepository = userRepository;
-		this.funcionarioServicoRepository = funcionarioServicoRepository;
-		this.funcionarioPrefsRepository = funcionarioPrefsRepository;
-		this.protocoloRepository = protocoloRepository;
-	}
+    public AgendamentoService(
+            AgendamentoRepository agendamentoRepository,
+            ServicoRepository servicoRepository,
+            UserRepository userRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository,
+            FuncionarioServicoRepository funcionarioServicoRepository,
+            FuncionarioPrefsRepository funcionarioPrefsRepository,
+            ProtocoloRepository protocoloRepository
+    ) {
+        this.agendamentoRepository = agendamentoRepository;
+        this.servicoRepository = servicoRepository;
+        this.userRepository = userRepository;
+        this.estabelecimentoUserRepository = estabelecimentoUserRepository;
+        this.funcionarioServicoRepository = funcionarioServicoRepository;
+        this.funcionarioPrefsRepository = funcionarioPrefsRepository;
+        this.protocoloRepository = protocoloRepository;
+    }
 
-	// ============================
-	// Entradas (use pelos controllers)
-	// ============================
+    // ============================
+    // Entradas (Controllers)
+    // ============================
 
-	@Transactional
-	public AgendamentoCreateResponseDTO createPublic(PublicAgendamentoCreateRequestDTO req) {
-		var inicio = parseInicio(req.getData(), req.getHora());
+    /**
+     * PÚBLICO (visitante, sem JWT)
+     *
+     * ⚠️ Precisa receber o estabelecimentoId (resolvido pelo slug antes).
+     */
+    @Transactional
+    public AgendamentoCreateResponseDTO createPublic(Long estabelecimentoId, PublicAgendamentoCreateRequestDTO req) {
+        var inicio = parseInicio(req.getData(), req.getHora());
 
-		return createCore(req.getServicoId(), req.getFuncionarioId(), null, // clienteId = null (visitante)
-				req.getClienteNome(), req.getClienteTelefone(), req.getClienteEmail(), req.getObservacoes(), inicio);
-	}
+        return createCore(
+                estabelecimentoId,
+                req.getServicoId(),
+                req.getFuncionarioId(),
+                null, // clienteId = null (visitante)
+                req.getClienteNome(),
+                req.getClienteTelefone(),
+                req.getClienteEmail(),
+                req.getObservacoes(),
+                inicio
+        );
+    }
 
-	@Transactional
-	public AgendamentoCreateResponseDTO createClienteLogado(Long clienteIdFromJwt,
-			ClienteAgendamentoCreateRequestDTO req) {
-		var inicio = parseInicio(req.getData(), req.getHora());
+    /**
+     * CLIENTE LOGADO (JWT)
+     */
+    @Transactional
+    public AgendamentoCreateResponseDTO createClienteLogado(Long clienteIdFromJwt, ClienteAgendamentoCreateRequestDTO req) {
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        var inicio = parseInicio(req.getData(), req.getHora());
 
-		// cliente logado: força clienteId, e (opcionalmente) podemos trazer
-		// nome/telefone/email do cadastro
-		var cliente = userRepository.findById(clienteIdFromJwt)
-				.orElseThrow(() -> new NotFoundException("Cliente não encontrado."));
+        // cliente logado: valida usuário + vínculo CLIENTE no tenant
+        User cliente = userRepository.findById(clienteIdFromJwt)
+                .orElseThrow(() -> new NotFoundException("Cliente não encontrado."));
 
-		if (!Boolean.TRUE.equals(cliente.getAtivo())) {
-			throw new ForbiddenException("Usuário inativo.");
-		}
-		if (cliente.getPerfil() != PerfilUser.CLIENTE) {
-			throw new ForbiddenException("Somente CLIENTE pode criar agendamento neste endpoint.");
-		}
+        if (!Boolean.TRUE.equals(cliente.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-		return createCore(req.getServicoId(), req.getFuncionarioId(), cliente.getId(), cliente.getNome(),
-				cliente.getTelefone(), cliente.getEmail(), req.getObservacoes(), inicio);
-	}
+        EstabelecimentoUser linkCliente = getLinkOrThrow(estabelecimentoId, cliente.getId());
 
-	@Transactional
-	public AgendamentoCreateResponseDTO createFuncionario(Long funcionarioIdFromJwt,
-			FuncionarioAgendamentoCreateRequestDTO req) {
+        if (Boolean.FALSE.equals(linkCliente.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
 
-		var inicio = parseInicio(req.getData(), req.getHora());
+        if (linkCliente.getPerfil() != PerfilUser.CLIENTE) {
+            throw new ForbiddenException("Somente CLIENTE pode criar agendamento neste endpoint.");
+        }
 
-		Long clienteId = req.getClienteId();
-		String nome = req.getClienteNome();
-		String tel = req.getClienteTelefone();
-		String email = req.getClienteEmail();
+        return createCore(
+                estabelecimentoId,
+                req.getServicoId(),
+                req.getFuncionarioId(),
+                cliente.getId(),
+                cliente.getNome(),
+                cliente.getTelefone(),
+                cliente.getEmail(),
+                req.getObservacoes(),
+                inicio
+        );
+    }
 
-		// Cenário A: cliente cadastrado
-		if (clienteId != null) {
-			var cliente = userRepository.findById(clienteId)
-					.orElseThrow(() -> new NotFoundException("Cliente não encontrado."));
+    /**
+     * FUNCIONÁRIO LOGADO (JWT)
+     *
+     * - funcionárioIdFromJwt vem do token (ou do controller).
+     * - pode agendar para cliente cadastrado (clienteId) OU para visitante (nome/telefone).
+     */
+    @Transactional
+    public AgendamentoCreateResponseDTO createFuncionario(Long funcionarioIdFromJwt, FuncionarioAgendamentoCreateRequestDTO req) {
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        var inicio = parseInicio(req.getData(), req.getHora());
 
-			if (!Boolean.TRUE.equals(cliente.getAtivo())) {
-				throw new BusinessException("Cliente está inativo.");
-			}
-			if (cliente.getPerfil() != PerfilUser.CLIENTE) {
-				throw new BusinessException("Usuário informado não é um cliente.");
-			}
+        // valida que o caller é FUNCIONARIO no tenant
+        User funcionarioLogado = userRepository.findById(funcionarioIdFromJwt)
+                .orElseThrow(() -> new NotFoundException("Funcionário não encontrado."));
 
-			nome = cliente.getNome();
-			tel = cliente.getTelefone();
-			email = cliente.getEmail();
-		} else {
-			// Cenário B: visitante
-			if (nome == null || nome.isBlank() || tel == null || tel.isBlank()) {
-				throw new BusinessException(
-						"Informe clienteNome e clienteTelefone (ou selecione um cliente cadastrado).");
-			}
-		}
+        if (!Boolean.TRUE.equals(funcionarioLogado.getAtivo())) {
+            throw new ForbiddenException("Usuário inativo.");
+        }
 
-		return createCore(req.getServicoId(), funcionarioIdFromJwt, clienteId, nome, tel, email, req.getObservacoes(),
-				inicio);
-	}
+        EstabelecimentoUser linkCaller = getLinkOrThrow(estabelecimentoId, funcionarioLogado.getId());
+        if (Boolean.FALSE.equals(linkCaller.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
+        if (linkCaller.getPerfil() != PerfilUser.FUNCIONARIO) {
+            throw new ForbiddenException("Somente FUNCIONARIO pode criar agendamento neste endpoint.");
+        }
 
-	// ============================
-	// Core único
-	// ============================
+        Long clienteId = req.getClienteId();
+        String nome = req.getClienteNome();
+        String tel = req.getClienteTelefone();
+        String email = req.getClienteEmail();
 
-	private AgendamentoCreateResponseDTO createCore(Long servicoId, Long funcionarioId, Long clienteId,
-			String clienteNome, String clienteTelefone, String clienteEmail, String observacoes, LocalDateTime inicio) {
-		// 1) valida serviço
-		var servico = servicoRepository.findById(servicoId)
-				.orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
+        // Cenário A: cliente cadastrado
+        if (clienteId != null) {
+            User cliente = userRepository.findById(clienteId)
+                    .orElseThrow(() -> new NotFoundException("Cliente não encontrado."));
 
-		// Ajuste se seu campo status for enum/string:
-		// regra: precisa estar ATIVO
-		// serviço precisa estar ATIVO
-		if (servico.getStatus() != StatusServico.ATIVO) {
-			throw new BusinessException("Serviço está inativo.");
-		}
+            if (!Boolean.TRUE.equals(cliente.getAtivo())) {
+                throw new BusinessException("Cliente está inativo.");
+            }
 
-		// 2) valida funcionário
-		var funcionario = userRepository.findById(funcionarioId)
-				.orElseThrow(() -> new NotFoundException("Funcionário não encontrado."));
+            EstabelecimentoUser linkCliente = getLinkOrThrow(estabelecimentoId, cliente.getId());
 
-		if (!Boolean.TRUE.equals(funcionario.getAtivo())) {
-			throw new BusinessException("Funcionário está inativo.");
-		}
-		if (funcionario.getPerfil() != PerfilUser.FUNCIONARIO) {
-			throw new BusinessException("Usuário informado não é um funcionário.");
-		}
+            if (Boolean.FALSE.equals(linkCliente.getAtivo())) {
+                throw new BusinessException("Cliente sem permissão (vínculo inativo).");
+            }
+            if (linkCliente.getPerfil() != PerfilUser.CLIENTE) {
+                throw new BusinessException("Usuário informado não é um cliente.");
+            }
 
-		// 3) valida vínculo funcionário-serviço (habilitado)
-		boolean habilitado = funcionarioServicoRepository.existsByIdFuncionarioIdAndIdServicoId(funcionarioId,
-				servicoId);
-		if (!habilitado) {
-			throw new BusinessException("Este serviço não está habilitado para o funcionário.");
-		}
+            nome = cliente.getNome();
+            tel = cliente.getTelefone();
+            email = cliente.getEmail();
+        } else {
+            // Cenário B: visitante
+            if (nome == null || nome.isBlank() || tel == null || tel.isBlank()) {
+                throw new BusinessException("Informe clienteNome e clienteTelefone (ou selecione um cliente cadastrado).");
+            }
+        }
 
-		// 4) resolve duração
-		int duracaoMin = resolveDuracaoMin(funcionarioId, servicoId, servico.getDuracaoMin());
+        return createCore(
+                estabelecimentoId,
+                req.getServicoId(),
+                funcionarioIdFromJwt,
+                clienteId,
+                nome,
+                tel,
+                email,
+                req.getObservacoes(),
+                inicio
+        );
+    }
 
-		LocalDateTime fim = inicio.plusMinutes(duracaoMin);
+    // ============================
+    // Core único
+    // ============================
 
-		// 5) conflito final (não confiar só no GET)
-		var conflitos = agendamentoRepository.findBlockingOverlapping(funcionarioId, inicio, fim);
-		if (!conflitos.isEmpty()) {
-			throw new BusinessException("Horário indisponível. Escolha outro horário.");
-		}
+    private AgendamentoCreateResponseDTO createCore(
+            Long estabelecimentoId,
+            Long servicoId,
+            Long funcionarioId,
+            Long clienteId,
+            String clienteNome,
+            String clienteTelefone,
+            String clienteEmail,
+            String observacoes,
+            LocalDateTime inicio
+    ) {
+        if (estabelecimentoId == null) {
+            throw new BusinessException("Estabelecimento inválido.");
+        }
 
-		// 6) gera protocolo único
-		String protocolo = generateUniqueProtocolo();
+        // 1) valida serviço
+        var servico = servicoRepository.findById(servicoId)
+                .orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
 
-		// 6.1) registra protocolo na tabela protocolos (auditoria/rastreabilidade)
-		Protocolo p = new Protocolo();
-		p.setCodigo(protocolo);
-		p.setTipo("agendamento");
+        if (servico.getStatus() != StatusServico.ATIVO) {
+            throw new BusinessException("Serviço está inativo.");
+        }
 
-		// Snapshot mínimo (MVP). Se quiser enriquecer depois, sem stress.
-		p.setDadosJson(buildProtocoloDadosJson(servicoId, funcionarioId, clienteId, clienteNome, clienteTelefone,
-				clienteEmail, inicio, fim));
+        // 2) valida funcionário (user ativo + vínculo FUNCIONARIO no tenant)
+        var funcionario = userRepository.findById(funcionarioId)
+                .orElseThrow(() -> new NotFoundException("Funcionário não encontrado."));
 
-		protocoloRepository.save(p);
+        if (!Boolean.TRUE.equals(funcionario.getAtivo())) {
+            throw new BusinessException("Funcionário está inativo.");
+        }
 
-		// 7) persiste agendamento referenciando o código do protocolo
-		Agendamento ag = new Agendamento();
-		ag.setProtocolo(protocolo);
-		ag.setTipo("hora_marcada");
-		ag.setServicoId(servicoId);
-		ag.setFuncionarioId(funcionarioId);
-		ag.setClienteId(clienteId);
-		ag.setClienteNome(clienteNome);
-		ag.setClienteTelefone(clienteTelefone);
-		ag.setClienteEmail(clienteEmail);
-		ag.setInicio(inicio);
-		ag.setFim(fim);
-		ag.setStatus("pendente");
-		ag.setObservacoes(observacoes);
+        EstabelecimentoUser linkFunc = getLinkOrThrow(estabelecimentoId, funcionarioId);
 
-		ag = agendamentoRepository.save(ag);
+        if (Boolean.FALSE.equals(linkFunc.getAtivo())) {
+            throw new BusinessException("Funcionário sem permissão (vínculo inativo).");
+        }
+        if (linkFunc.getPerfil() != PerfilUser.FUNCIONARIO) {
+            throw new BusinessException("Usuário informado não é um funcionário.");
+        }
 
-		return new AgendamentoCreateResponseDTO(ag.getId(), ag.getProtocolo(), ag.getInicio(), ag.getFim(),
-				ag.getStatus());
-	}
+        // 3) valida vínculo funcionário-serviço (habilitado)
+        boolean habilitado = funcionarioServicoRepository.existsByIdFuncionarioIdAndIdServicoId(funcionarioId, servicoId);
+        if (!habilitado) {
+            throw new BusinessException("Este serviço não está habilitado para o funcionário.");
+        }
 
-	// ============================
-	// Helpers
-	// ============================
+        // 4) resolve duração
+        int duracaoMin = resolveDuracaoMin(funcionarioId, servicoId, servico.getDuracaoMin());
+        LocalDateTime fim = inicio.plusMinutes(duracaoMin);
 
-	private LocalDateTime parseInicio(String data, String hora) {
-		try {
-			LocalDate d = LocalDate.parse(data, DATE_FMT);
-			LocalTime t = LocalTime.parse(hora, TIME_FMT);
-			return LocalDateTime.of(d, t);
-		} catch (Exception e) {
-			throw new BusinessException("Data/hora inválidas. Use yyyy-MM-dd e HH:mm.");
-		}
-	}
+        // 5) conflito final
+        var conflitos = agendamentoRepository.findBlockingOverlapping(funcionarioId, inicio, fim);
+        if (!conflitos.isEmpty()) {
+            throw new BusinessException("Horário indisponível. Escolha outro horário.");
+        }
 
-	/**
-	 * Resolve a duração do serviço para o funcionário: - prefs_json: { "servicos":
-	 * { "<servicoId>": { "duracaoMin": X } } } - fallback: servico.duracaoMin
-	 */
-	private int resolveDuracaoMin(Long funcionarioId, Long servicoId, int duracaoPadrao) {
-		try {
-			FuncionarioPrefs prefs = funcionarioPrefsRepository.findById(funcionarioId).orElse(null);
-			if (prefs == null || prefs.getPrefsJson() == null || prefs.getPrefsJson().isBlank()) {
-				return duracaoPadrao;
-			}
+        // 6) gera protocolo único
+        String protocolo = generateUniqueProtocolo();
 
-			JsonNode root = objectMapper.readTree(prefs.getPrefsJson());
-			JsonNode servicosNode = root.path("servicos");
-			JsonNode servicoNode = servicosNode.path(String.valueOf(servicoId));
-			JsonNode duracaoNode = servicoNode.path("duracaoMin");
+        // 6.1) registra protocolo
+        Protocolo p = new Protocolo();
+        p.setCodigo(protocolo);
+        p.setTipo("agendamento");
+        p.setDadosJson(buildProtocoloDadosJson(servicoId, funcionarioId, clienteId, clienteNome, clienteTelefone, clienteEmail, inicio, fim));
+        protocoloRepository.save(p);
 
-			if (duracaoNode.isInt()) {
-				return duracaoNode.asInt();
-			}
-			return duracaoPadrao;
-		} catch (Exception e) {
-			// se prefs quebrar, não travar o agendamento (fallback no padrão)
-			return duracaoPadrao;
-		}
-	}
+        // 7) persiste agendamento
+        Agendamento ag = new Agendamento();
+        ag.setProtocolo(protocolo);
+        ag.setTipo("hora_marcada");
+        ag.setServicoId(servicoId);
+        ag.setFuncionarioId(funcionarioId);
+        ag.setClienteId(clienteId);
+        ag.setClienteNome(clienteNome);
+        ag.setClienteTelefone(clienteTelefone);
+        ag.setClienteEmail(clienteEmail);
+        ag.setInicio(inicio);
+        ag.setFim(fim);
+        ag.setStatus("pendente");
+        ag.setObservacoes(observacoes);
 
-	/**
-	 * Protocolo simples (MVP): BRV-YYYYMMDD-XXXXXX - Checa unicidade em protocolos
-	 * e em agendamentos (defesa dupla).
-	 */
-	private String generateUniqueProtocolo() {
-		String date = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
-		Random r = new Random();
+        ag = agendamentoRepository.save(ag);
 
-		for (int i = 0; i < 10; i++) {
-			String suffix = String.format("%06d", r.nextInt(1_000_000));
-			String proto = "BRV-" + date + "-" + suffix;
+        return new AgendamentoCreateResponseDTO(
+                ag.getId(),
+                ag.getProtocolo(),
+                ag.getInicio(),
+                ag.getFim(),
+                ag.getStatus()
+        );
+    }
 
-			boolean exists = protocoloRepository.existsByCodigo(proto)
-					|| agendamentoRepository.existsByProtocolo(proto);
+    // ============================
+    // Helpers (tenant/vínculo)
+    // ============================
 
-			if (!exists) {
-				return proto;
-			}
-		}
+    private EstabelecimentoUser getLinkOrThrow(Long estabelecimentoId, Long userId) {
+        return estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, userId)
+                .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
+    }
 
-		throw new BusinessException("Não foi possível gerar protocolo. Tente novamente.");
-	}
+    // ============================
+    // Helpers (parsing)
+    // ============================
 
-	/**
-	 * Monta um JSON simples para auditoria do protocolo (MVP). Mantemos manual para
-	 * evitar criar DTO extra só pra isso agora.
-	 */
-	private String buildProtocoloDadosJson(Long servicoId, Long funcionarioId, Long clienteId, String clienteNome,
-			String clienteTelefone, String clienteEmail, LocalDateTime inicio, LocalDateTime fim) {
-		// JSON “manual” simples. (Se preferir, podemos usar ObjectMapper depois.)
-		return "{" + "\"servicoId\":" + servicoId + "," + "\"funcionarioId\":" + funcionarioId + "," + "\"clienteId\":"
-				+ (clienteId == null ? "null" : clienteId) + "," + "\"clienteNome\":\"" + safeJson(clienteNome) + "\","
-				+ "\"clienteTelefone\":\"" + safeJson(clienteTelefone) + "\"," + "\"clienteEmail\":\""
-				+ safeJson(clienteEmail) + "\"," + "\"inicio\":\"" + inicio + "\"," + "\"fim\":\"" + fim + "\"" + "}";
-	}
+    private LocalDateTime parseInicio(String data, String hora) {
+        try {
+            LocalDate d = LocalDate.parse(data, DATE_FMT);
+            LocalTime t = LocalTime.parse(hora, TIME_FMT);
+            return LocalDateTime.of(d, t);
+        } catch (Exception e) {
+            throw new BusinessException("Data/hora inválidas. Use yyyy-MM-dd e HH:mm.");
+        }
+    }
 
-	/**
-	 * Escape mínimo para não quebrar JSON com aspas.
-	 */
-	private String safeJson(String s) {
-		if (s == null)
-			return "";
-		return s.replace("\\", "\\\\").replace("\"", "\\\"");
-	}
+    private int resolveDuracaoMin(Long funcionarioId, Long servicoId, int duracaoPadrao) {
+        try {
+            FuncionarioPrefs prefs = funcionarioPrefsRepository.findById(funcionarioId).orElse(null);
+            if (prefs == null || prefs.getPrefsJson() == null || prefs.getPrefsJson().isBlank()) {
+                return duracaoPadrao;
+            }
 
-	/**
-	 * Lista agendamentos do cliente logado (MVP).
-	 *
-	 * Params: - from/to: yyyy-MM-dd (janela por data, opcional) - status:
-	 * "pendente,confirmado" (opcional)
-	 */
-	public List<AgendamentoItemResponseDTO> listCliente(Long clienteId, String from, String to, String status) {
+            JsonNode root = objectMapper.readTree(prefs.getPrefsJson());
+            JsonNode servicosNode = root.path("servicos");
+            JsonNode servicoNode = servicosNode.path(String.valueOf(servicoId));
+            JsonNode duracaoNode = servicoNode.path("duracaoMin");
 
-		LocalDateTime fromDt = parseDateStart(from);
-		LocalDateTime toDt = parseDateEndExclusive(to);
-		List<String> statusList = parseStatusList(status);
+            if (duracaoNode.isInt()) {
+                return duracaoNode.asInt();
+            }
+            return duracaoPadrao;
+        } catch (Exception e) {
+            return duracaoPadrao;
+        }
+    }
 
-		var list = agendamentoRepository.findByClienteFiltro(clienteId, fromDt, toDt, statusList);
-		return list.stream().map(AgendamentoMapper::toItemDTO).collect(Collectors.toList());
-	}
+    private String generateUniqueProtocolo() {
+        String date = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
+        Random r = new Random();
 
-	/**
-	 * Lista agendamentos do funcionário logado (MVP).
-	 *
-	 * Params: - from/to: yyyy-MM-dd (opcional) - status:
-	 * "pendente,confirmado,em_atendimento" (opcional)
-	 */
-	public List<AgendamentoItemResponseDTO> listFuncionario(Long funcionarioId, String from, String to, String status) {
+        for (int i = 0; i < 10; i++) {
+            String suffix = String.format("%06d", r.nextInt(1_000_000));
+            String proto = "BRV-" + date + "-" + suffix;
 
-		LocalDateTime fromDt = parseDateStart(from);
-		LocalDateTime toDt = parseDateEndExclusive(to);
-		List<String> statusList = parseStatusList(status);
+            boolean exists = protocoloRepository.existsByCodigo(proto) || agendamentoRepository.existsByProtocolo(proto);
+            if (!exists) return proto;
+        }
 
-		var list = agendamentoRepository.findByFuncionarioFiltro(funcionarioId, fromDt, toDt, statusList);
-		return list.stream().map(AgendamentoMapper::toItemDTO).collect(Collectors.toList());
-	}
+        throw new BusinessException("Não foi possível gerar protocolo. Tente novamente.");
+    }
 
-	/**
-	 * Consulta pública por protocolo (MVP). Útil para o visitante
-	 * confirmar/consultar um agendamento sem login.
-	 */
-	public AgendamentoItemResponseDTO getPublicByProtocolo(String protocolo) {
-		var ag = agendamentoRepository.findByProtocolo(protocolo)
-				.orElseThrow(() -> new NotFoundException("Agendamento não encontrado para este protocolo."));
-		return AgendamentoMapper.toItemDTO(ag);
-	}
+    private String buildProtocoloDadosJson(
+            Long servicoId,
+            Long funcionarioId,
+            Long clienteId,
+            String clienteNome,
+            String clienteTelefone,
+            String clienteEmail,
+            LocalDateTime inicio,
+            LocalDateTime fim
+    ) {
+        return "{"
+                + "\"servicoId\":" + servicoId + ","
+                + "\"funcionarioId\":" + funcionarioId + ","
+                + "\"clienteId\":" + (clienteId == null ? "null" : clienteId) + ","
+                + "\"clienteNome\":\"" + safeJson(clienteNome) + "\","
+                + "\"clienteTelefone\":\"" + safeJson(clienteTelefone) + "\","
+                + "\"clienteEmail\":\"" + safeJson(clienteEmail) + "\","
+                + "\"inicio\":\"" + inicio + "\","
+                + "\"fim\":\"" + fim + "\""
+                + "}";
+    }
 
-	/*
-	 * ================================ Helpers de parsing (MVP)
-	 * ================================
-	 */
+    private String safeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
 
-	/**
-	 * Parse yyyy-MM-dd para início do dia.
-	 */
-	private LocalDateTime parseDateStart(String date) {
-		if (date == null || date.isBlank())
-			return null;
-		LocalDate d = LocalDate.parse(date.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
-		return d.atStartOfDay();
-	}
+    // ============================
+    // Listagens (MVP)
+    // ============================
 
-	/**
-	 * Parse yyyy-MM-dd para fim exclusivo (dia seguinte 00:00). Isso facilita
-	 * queries do tipo [from, to).
-	 */
-	private LocalDateTime parseDateEndExclusive(String date) {
-		if (date == null || date.isBlank())
-			return null;
-		LocalDate d = LocalDate.parse(date.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
-		return d.plusDays(1).atStartOfDay();
-	}
+    public List<AgendamentoItemResponseDTO> listCliente(Long clienteId, String from, String to, String status) {
+        LocalDateTime fromDt = parseDateStart(from);
+        LocalDateTime toDt = parseDateEndExclusive(to);
+        List<String> statusList = parseStatusList(status);
 
-	/**
-	 * Parse status "pendente,confirmado" em lista.
-	 */
-	private List<String> parseStatusList(String status) {
-		if (status == null || status.isBlank())
-			return null;
+        var list = agendamentoRepository.findByClienteFiltro(clienteId, fromDt, toDt, statusList);
+        return list.stream().map(AgendamentoMapper::toItemDTO).collect(Collectors.toList());
+    }
 
-		List<String> list = Arrays.stream(status.split(",")).map(String::trim).filter(s -> !s.isBlank())
-				.collect(Collectors.toList());
+    public List<AgendamentoItemResponseDTO> listFuncionario(Long funcionarioId, String from, String to, String status) {
+        LocalDateTime fromDt = parseDateStart(from);
+        LocalDateTime toDt = parseDateEndExclusive(to);
+        List<String> statusList = parseStatusList(status);
 
-		return list.isEmpty() ? null : list;
-	}
+        var list = agendamentoRepository.findByFuncionarioFiltro(funcionarioId, fromDt, toDt, statusList);
+        return list.stream().map(AgendamentoMapper::toItemDTO).collect(Collectors.toList());
+    }
+
+    public AgendamentoItemResponseDTO getPublicByProtocolo(String protocolo) {
+        var ag = agendamentoRepository.findByProtocolo(protocolo)
+                .orElseThrow(() -> new NotFoundException("Agendamento não encontrado para este protocolo."));
+        return AgendamentoMapper.toItemDTO(ag);
+    }
+
+    private LocalDateTime parseDateStart(String date) {
+        if (date == null || date.isBlank()) return null;
+        LocalDate d = LocalDate.parse(date.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
+        return d.atStartOfDay();
+    }
+
+    private LocalDateTime parseDateEndExclusive(String date) {
+        if (date == null || date.isBlank()) return null;
+        LocalDate d = LocalDate.parse(date.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
+        return d.plusDays(1).atStartOfDay();
+    }
+
+    private List<String> parseStatusList(String status) {
+        if (status == null || status.isBlank()) return null;
+
+        List<String> list = Arrays.stream(status.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toList());
+
+        return list.isEmpty() ? null : list;
+    }
 }
