@@ -34,10 +34,10 @@ public class EstabelecimentoConfirmEmailRequestDTO {
 	}
 	
 	public String getSlug() {
-		return codigo;
+		return slug;
 	}
 
 	public void setSlug(String codigo) {
-		this.codigo = codigo;
+		this.slug = slug;
 	}
 }
