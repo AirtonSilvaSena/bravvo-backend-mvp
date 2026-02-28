@@ -1,4 +1,4 @@
-package br.com.bravvo.api.controller;
+package br.com.bravvo.api.controller.admin;
 
 import br.com.bravvo.api.service.EstabelecimentoLogoAdminService;
 import org.springframework.http.ResponseEntity;
