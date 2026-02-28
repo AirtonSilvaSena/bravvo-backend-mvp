@@ -16,6 +16,7 @@ import br.com.bravvo.api.repository.EstabelecimentoRepository;
 import br.com.bravvo.api.repository.RefreshTokenRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.security.JwtService;
+import br.com.bravvo.api.security.TenantContext;
 import br.com.bravvo.api.util.TokenHashUtils;
 import jakarta.transaction.Transactional;
 import org.springframework.security.core.Authentication;
@@ -192,46 +193,25 @@ public class AuthService {
     /**
      * ME - retorna dados do usuário autenticado (via email do JWT)
      */
-    public MeResponseDTO me(String email) {
+    public MeResponseDTO me() {
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String email = TenantContext.getEmailOrThrow();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
+        User user = userRepository
+                .findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado neste estabelecimento."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {
             throw new ForbiddenException("Usuário inativo.");
         }
 
-        return new MeResponseDTO(user.getId(), user.getNome(), user.getEmail(), user.getTelefone(), user.getPerfil());
-    }
-
-    /**
-     * REGISTER (público)
-     * - cria um usuário do tipo CLIENTE (self-register)
-     * - valida e-mail único
-     * - gera senha_hash com BCrypt
-     * - retorna dados do usuário criado (sem tokens)
-     *
-     * OBS: aqui você ainda NÃO está exigindo slug no register (como está hoje).
-     * Se você quiser, a gente ajusta depois para atrelar estabelecimento.
-     */
-    public MeResponseDTO register(RegisterRequestDTO dto) {
-
-        if (userRepository.existsByEmail(dto.getEmail())) {
-            throw new BusinessException("Já existe um usuário com este e-mail.");
-        }
-
-        User user = new User();
-        user.setNome(dto.getNome());
-        user.setEmail(dto.getEmail());
-        user.setTelefone(dto.getTelefone());
-
-        user.setPerfil(PerfilUser.CLIENTE);
-        user.setAtivo(true);
-        user.setSenhaHash(passwordEncoder.encode(dto.getSenha()));
-
-        userRepository.save(user);
-
-        return new MeResponseDTO(user.getId(), user.getNome(), user.getEmail(), user.getTelefone(), user.getPerfil());
+        return new MeResponseDTO(
+                user.getId(),
+                user.getNome(),
+                user.getEmail(),
+                user.getTelefone(),
+                user.getPerfil()
+        );
     }
 
     @Transactional
@@ -243,10 +223,12 @@ public class AuthService {
             throw new ForbiddenException("Usuário não autenticado.");
         }
 
-        String email = auth.getName();
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String email = TenantContext.getEmailOrThrow();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
+        User user = userRepository
+                .findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado neste estabelecimento."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {
             throw new ForbiddenException("Usuário inativo.");
