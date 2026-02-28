@@ -51,15 +51,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String email = jwtService.getSubject(token);
-        Long salaoId = jwtService.getEstabelecimentoId(token);
+        Long estabelecimentoId = jwtService.getEstabelecimentoId(token);
 
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
 
             UserDetails userDetails;
 
             // Multi-tenant: se tiver salao_id no token, carrega o usuário dentro do salão
-            if (salaoId != null) {
-                userDetails = userDetailsService.loadUserByEmailAndSalaoId(email, salaoId);
+            if (estabelecimentoId != null) {
+                userDetails = userDetailsService.loadUserByEmailAndEstabelecimentoId(email, estabelecimentoId);
             } else {
                 userDetails = userDetailsService.loadUserByUsername(email);
             }
@@ -67,8 +67,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
 
-            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            //authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            var webDetails = new WebAuthenticationDetailsSource().buildDetails(request);
 
+            authentication.setDetails(java.util.Map.of(
+                    "estabelecimentoId", estabelecimentoId,
+                    "web", webDetails
+            ));
+            
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
 

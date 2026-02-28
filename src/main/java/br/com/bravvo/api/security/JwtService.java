@@ -41,7 +41,7 @@ public class JwtService {
      * - salao_id (multi-tenant)
      * - slug (opcional)
      */
-    public String generateAccessToken(User user, Long salaoId, String slug) {
+    public String generateAccessToken(User user, Long estabelecimentoId, String slug) {
 
         Instant now = Instant.now();
         Instant exp = now.plus(props.getAccessTokenMinutes(), ChronoUnit.MINUTES);
@@ -54,8 +54,8 @@ public class JwtService {
                 .claim("uid", user.getId())
                 .claim("perfil", user.getPerfil().name());
 
-        if (salaoId != null) {
-            builder.claim("salao_id", salaoId);
+        if (estabelecimentoId != null) {
+        	builder.claim("estabelecimento_id", estabelecimentoId);
         }
         if (slug != null && !slug.isBlank()) {
             builder.claim("slug", slug);
@@ -95,7 +95,7 @@ public class JwtService {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload()
-                .get("salao_id");
+                .get("estabelecimento_id");
 
         if (val == null) return null;
 

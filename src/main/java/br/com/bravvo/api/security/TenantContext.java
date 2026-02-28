@@ -53,24 +53,16 @@ public class TenantContext {
     public static Long getEstabelecimentoIdOrThrow() {
         Authentication auth = getAuthenticationOrThrow();
 
-        // 1) Tenta extrair do principal (CustomUserDetails -> getEstabelecimentoId ou getSalaoId)
         Long fromPrincipal = tryGetLongViaGetter(auth.getPrincipal(), "getEstabelecimentoId");
         if (fromPrincipal != null) return fromPrincipal;
 
-        Long fromPrincipalSalao = tryGetLongViaGetter(auth.getPrincipal(), "getEstabelecimentoId");
-        if (fromPrincipalSalao != null) return fromPrincipalSalao;
-
-        // 2) Tenta extrair do details (Map)
         Object details = auth.getDetails();
         Long fromDetails = tryGetLongFromDetails(details, "estabelecimentoId");
         if (fromDetails != null) return fromDetails;
 
-        Long fromDetailsSalao = tryGetLongFromDetails(details, "estabelecimentoId");
-        if (fromDetailsSalao != null) return fromDetailsSalao;
-
         throw new ForbiddenException("Contexto de estabelecimento não informado no token.");
     }
-
+    
     private static Long tryGetLongViaGetter(Object target, String getterName) {
         if (target == null) return null;
         try {

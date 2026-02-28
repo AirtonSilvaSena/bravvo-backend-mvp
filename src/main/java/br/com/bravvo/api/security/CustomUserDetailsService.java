@@ -48,7 +48,7 @@ public class CustomUserDetailsService implements UserDetailsService {
      * Multi-tenant: carrega por e-mail + salao_id.
      * Isso garante que o token só autentica o usuário dentro do salão correto.
      */
-    public UserDetails loadUserByEmailAndSalaoId(String email, Long salaoId) throws UsernameNotFoundException {
+    public UserDetails loadUserByEmailAndEstabelecimentoId(String email, Long salaoId) throws UsernameNotFoundException {
 
         User user = userRepository.findByEmailAndEstabelecimentoId(email, salaoId)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado."));
