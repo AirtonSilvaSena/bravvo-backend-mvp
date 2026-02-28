@@ -37,7 +37,7 @@ public class EstabelecimentoConfirmEmailRequestDTO {
 		return slug;
 	}
 
-	public void setSlug(String codigo) {
+	public void setSlug(String slug) {
 		this.slug = slug;
 	}
 }
