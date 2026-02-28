@@ -7,6 +7,7 @@ import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.repository.EstabelecimentoRepository;
 import br.com.bravvo.api.repository.UserRepository;
+import br.com.bravvo.api.security.TenantContext;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
@@ -48,15 +49,21 @@ public class EstabelecimentoLogoAdminService {
     public void uploadLogo(MultipartFile file) {
         User admin = getAuthenticatedAdminOrThrow();
 
-        Estabelecimentos est = estabelecimentoRepository.findByOwnerUserId(admin.getId())
-                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado para este admin."));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
+        // opcional (recomendado): garante que o token é do mesmo tenant do usuário
+        if (admin.getEstabelecimentoId() == null || !admin.getEstabelecimentoId().equals(estabelecimentoId)) {
+            throw new ForbiddenException("Token não pertence a este estabelecimento.");
+        }
+
+        Estabelecimentos est = estabelecimentoRepository.findById(estabelecimentoId)
+                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
 
         validateFile(file);
 
         String mime = file.getContentType();
         String ext = "image/png".equals(mime) ? "png" : "jpg";
 
-        // ✅ chave estável por estabelecimento (sobrescreve sempre)
         String filename = "estabelecimento-" + est.getId() + "." + ext;
 
         try {
@@ -65,12 +72,10 @@ public class EstabelecimentoLogoAdminService {
 
             Path target = dir.resolve(filename).normalize();
 
-            // Segurança: garante que não escapou do diretório
             if (!target.startsWith(dir.normalize())) {
                 throw new BusinessException("Caminho inválido para salvar o logo.");
             }
 
-            // sobrescreve
             Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
 
             est.setLogoKey(filename);
