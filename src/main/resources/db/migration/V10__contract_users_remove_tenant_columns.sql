@@ -1,37 +1,42 @@
--- V{N}__contract_users_remove_tenant_columns.sql
--- Migration 2 (CONTRACT)
--- Objetivo:
--- - Consolidar users por email (global) para evitar duplicidade
--- - Atualizar todas as FKs que apontam para users(id)
--- - Remover colunas tenant/perfil do users: estabelecimento_id, perfil
--- - Criar UNIQUE global por email
+-- V10__contract_users_remove_tenant_columns.sql
+-- Contract migration: remove colunas antigas de multi-tenant em users (estabelecimento_id, perfil)
+-- Pré-requisito: tabela estabelecimento_users já existe e está com vínculos preenchidos (expand/backfill já executado).
 
--- ============================================================
--- 0) MERGE AUTOMÁTICO DE USERS DUPLICADOS POR EMAIL
---    - mantém o menor id como canônico
---    - atualiza todas as FKs do schema que referenciam users(id)
---    - remove os users duplicados (não-canônicos)
--- ============================================================
+/*
+  ✅ Estratégia:
+  1) (Opcional, porém recomendado) Mesclar usuários duplicados por email em um único user global:
+     - keep_id = menor id por email
+     - move FKs conhecidas para keep_id
+     - deleta duplicados
+  2) Remover constraints/indexes que dependem de users.estabelecimento_id / users.perfil
+  3) Dropar colunas estabelecimento_id e perfil de users
+  4) Criar UNIQUE global para users.email (agora email vira identidade global)
+*/
+
+-- =========================
+-- 1) MERGE DE DUPLICADOS (POR EMAIL)
+-- =========================
 
 DELIMITER $$
 
-DROP PROCEDURE IF EXISTS sp_merge_duplicate_users_by_email$$
+DROP PROCEDURE IF EXISTS sp_merge_duplicate_users_by_email $$
 
 CREATE PROCEDURE sp_merge_duplicate_users_by_email()
-BEGIN
-  -- Cria tabela temporária de mapeamento old_id -> new_id
+proc: BEGIN
+  DECLARE dup_count INT DEFAULT 0;
+
+  -- Tabela temporária old_id -> keep_id
   DROP TEMPORARY TABLE IF EXISTS tmp_user_merge_map;
   CREATE TEMPORARY TABLE tmp_user_merge_map (
     old_id BIGINT UNSIGNED NOT NULL,
-    new_id BIGINT UNSIGNED NOT NULL,
+    keep_id BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (old_id),
-    KEY idx_new_id (new_id)
+    KEY idx_keep_id (keep_id)
   ) ENGINE=Memory;
 
-  -- Popula o mapa para emails duplicados:
-  -- new_id = menor id do email, old_id = demais ids
-  INSERT INTO tmp_user_merge_map (old_id, new_id)
-  SELECT u.id AS old_id, t.keep_id AS new_id
+  -- Monta mapa: para cada email duplicado, mantém menor id e marca os demais como old_id
+  INSERT INTO tmp_user_merge_map (old_id, keep_id)
+  SELECT u.id AS old_id, t.keep_id AS keep_id
   FROM users u
   JOIN (
     SELECT email, MIN(id) AS keep_id, COUNT(*) AS cnt
@@ -41,109 +46,89 @@ BEGIN
   ) t ON t.email = u.email
   WHERE u.id <> t.keep_id;
 
-  -- Se não houver duplicados, sai
-  IF (SELECT COUNT(*) FROM tmp_user_merge_map) = 0 THEN
-    LEAVE BEGIN;
+  SELECT COUNT(*) INTO dup_count FROM tmp_user_merge_map;
+
+  IF dup_count = 0 THEN
+    DROP TEMPORARY TABLE IF EXISTS tmp_user_merge_map;
+    LEAVE proc;
   END IF;
 
-  -- Atualiza TODAS as FKs do schema que referenciam users(id)
-  -- (inclui estabelecimentos.owner_user_id, estabelecimento_users.user_id, refresh_tokens.user_id, etc.)
-  BEGIN
-    DECLARE done INT DEFAULT 0;
-    DECLARE v_table_name VARCHAR(255);
-    DECLARE v_column_name VARCHAR(255);
+  /*
+    ⚠️ IMPORTANTE:
+    Aqui atualizamos FKs mais prováveis no seu schema.
+    Se você tiver outras tabelas referenciando users(id), adicione mais blocos UPDATE no mesmo padrão.
+  */
 
-    DECLARE cur CURSOR FOR
-      SELECT kcu.TABLE_NAME, kcu.COLUMN_NAME
-      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-      WHERE kcu.TABLE_SCHEMA = DATABASE()
-        AND kcu.REFERENCED_TABLE_NAME = 'users'
-        AND kcu.REFERENCED_COLUMN_NAME = 'id';
+  -- 1) refresh_tokens.user_id
+  UPDATE refresh_tokens rt
+  JOIN tmp_user_merge_map m ON rt.user_id = m.old_id
+  SET rt.user_id = m.keep_id;
 
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+  -- 2) estabelecimentos.owner_user_id
+  UPDATE estabelecimentos e
+  JOIN tmp_user_merge_map m ON e.owner_user_id = m.old_id
+  SET e.owner_user_id = m.keep_id;
 
-    OPEN cur;
+  -- 3) estabelecimento_users.user_id
+  UPDATE estabelecimento_users eu
+  JOIN tmp_user_merge_map m ON eu.user_id = m.old_id
+  SET eu.user_id = m.keep_id;
 
-    read_loop: LOOP
-      FETCH cur INTO v_table_name, v_column_name;
-      IF done = 1 THEN
-        LEAVE read_loop;
-      END IF;
-
-      -- Monta e executa:
-      -- UPDATE <table> t
-      -- JOIN tmp_user_merge_map m ON t.<col> = m.old_id
-      -- SET t.<col> = m.new_id;
-      SET @sql = CONCAT(
-        'UPDATE `', v_table_name, '` t ',
-        'JOIN tmp_user_merge_map m ON t.`', v_column_name, '` = m.old_id ',
-        'SET t.`', v_column_name, '` = m.new_id'
-      );
-
-      PREPARE stmt FROM @sql;
-      EXECUTE stmt;
-      DEALLOCATE PREPARE stmt;
-    END LOOP;
-
-    CLOSE cur;
-  END;
-
-  -- Remove os users duplicados (old_id)
+  -- Remove duplicados (old_id)
   DELETE u
   FROM users u
   JOIN tmp_user_merge_map m ON u.id = m.old_id;
 
-  -- Limpa temp
   DROP TEMPORARY TABLE IF EXISTS tmp_user_merge_map;
-END$$
-
-CALL sp_merge_duplicate_users_by_email()$$
-
-DROP PROCEDURE IF EXISTS sp_merge_duplicate_users_by_email$$
+END $$
 
 DELIMITER ;
 
--- ============================================================
--- 1) DROP constraints/índices antigos dependentes de estabelecimento_id/perfil
--- ============================================================
+-- Executa merge
+CALL sp_merge_duplicate_users_by_email();
 
--- FK users -> estabelecimentos (tenant antigo)
+-- Remove procedure (não deixar lixo no schema)
+DROP PROCEDURE IF EXISTS sp_merge_duplicate_users_by_email;
+
+-- =========================
+-- 2) DROP CONSTRAINTS/INDEXES ANTIGOS
+-- =========================
+
+-- FK users -> estabelecimentos (estabelecimento_id)
+-- (nome no seu schema: fk_users_estabelecimento)
 ALTER TABLE users
   DROP FOREIGN KEY fk_users_estabelecimento;
 
--- Uniques por tenant
-ALTER TABLE users
-  DROP INDEX uk_users_estabelecimento_email,
-  DROP INDEX uk_users_estabelecimento_telefone;
+-- Unique composto (estabelecimento_id, email / telefone)
+DROP INDEX uk_users_estabelecimento_email ON users;
+DROP INDEX uk_users_estabelecimento_telefone ON users;
 
--- Índices que dependem de estabelecimento_id e/ou perfil
-ALTER TABLE users
-  DROP INDEX idx_users_estabelecimento_perfil_ativo,
-  DROP INDEX idx_users_perfil_ativo;
+-- Indexes que dependem de estabelecimento_id/perfil
+DROP INDEX idx_users_estabelecimento_perfil_ativo ON users;
+DROP INDEX idx_users_perfil_ativo ON users;
 
--- CHECK antigo de perfil (nomeado)
+-- chk antigo do perfil na users (vamos remover junto com a coluna)
+-- Em MariaDB, o CHECK existe como constraint; dependendo da versão ele pode ter nome interno.
+-- Como você mostrou o nome "chk_users_perfil", vamos tentar dropar explicitamente:
 ALTER TABLE users
-  DROP CHECK chk_users_perfil;
+  DROP CONSTRAINT chk_users_perfil;
 
--- ============================================================
--- 2) DROP colunas tenant/perfil no users
--- ============================================================
+-- =========================
+-- 3) DROP COLUNAS ANTIGAS
+-- =========================
 
 ALTER TABLE users
   DROP COLUMN estabelecimento_id,
   DROP COLUMN perfil;
 
--- ============================================================
--- 3) Cria UNIQUE global por email
--- ============================================================
+-- =========================
+-- 4) GARANTIAS NOVAS (email global)
+-- =========================
 
--- Garanta que email está normalizado fora daqui (ideal: lower no app).
--- Aqui apenas aplicamos a constraint.
+-- Agora o email vira identidade global do usuário (um usuário único pode ter múltiplos vínculos em estabelecimento_users)
+-- Se já existir index/constraint diferente, ajuste o nome:
 ALTER TABLE users
   ADD CONSTRAINT uk_users_email UNIQUE (email);
 
--- (Opcional, mas recomendado) índice útil para buscas por telefone
--- Mantém idx_users_telefone que já existe; não cria unique global em telefone aqui.
-
--- Índice útil para filtros por ativo
-CREATE INDEX idx_users_ativo ON users (ativo);
+-- (Opcional) Índice útil para login e busca
+CREATE INDEX idx_users_email_ativo ON users (email, ativo);
