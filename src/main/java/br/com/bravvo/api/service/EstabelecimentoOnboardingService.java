@@ -112,72 +112,93 @@ public class EstabelecimentoOnboardingService {
 	@Transactional
 	public void confirmEmail(EstabelecimentoConfirmEmailRequestDTO dto) {
 
-		String email = dto.getEmail().trim().toLowerCase();
-		String codigo = dto.getCodigo().trim();
+	    String slug = SlugUtils.normalize(dto.getSlug());
+	    if (!SlugUtils.isValid(slug)) {
+	        throw new BusinessException("Endereço do estabelecimento inválido.");
+	    }
 
-		EstabelecimentosPreCadastro pre = preCadastroRepository.findByEmail(email)
-				.orElseThrow(() -> new BusinessException("Pré-cadastro não encontrado. Solicite um novo código."));
+	    String email = dto.getEmail() == null ? "" : dto.getEmail().trim().toLowerCase();
+	    if (email.isBlank()) {
+	        throw new BusinessException("E-mail é obrigatório.");
+	    }
 
-		if (pre.getExpiresAt().isBefore(LocalDateTime.now())) {
-			preCadastroRepository.deleteByEmail(email);
-			throw new BusinessException("Código expirado. Solicite um novo cadastro.");
-		}
+	    String codigo = dto.getCodigo() == null ? "" : dto.getCodigo().trim();
+	    if (codigo.isBlank()) {
+	        throw new BusinessException("Código é obrigatório.");
+	    }
 
-		if (pre.getAttempts() >= 5) {
-			preCadastroRepository.deleteByEmail(email);
-			throw new BusinessException("Muitas tentativas. Refazer cadastro.");
-		}
+	    // Agora que email pode repetir no pré-cadastro, confirmamos NO CONTEXTO DO SLUG
+	    EstabelecimentosPreCadastro pre = preCadastroRepository.findBySlug(slug)
+	            .orElseThrow(() -> new BusinessException("Pré-cadastro não encontrado. Solicite um novo código."));
 
-		String codigoHash = TokenHashUtils.sha256(codigo);
-		if (!codigoHash.equals(pre.getCodigoHash())) {
-			pre.setAttempts(pre.getAttempts() + 1);
-			preCadastroRepository.save(pre);
-			throw new BusinessException("Código inválido.");
-		}
+	    // Garante que o email informado é o mesmo do pré-cadastro deste slug
+	    if (!email.equalsIgnoreCase(pre.getEmail())) {
+	        throw new BusinessException("E-mail não confere com o pré-cadastro deste estabelecimento.");
+	    }
 
-		// Revalida slug/email no momento da confirmação (race condition)
-		// ATENÇÃO: este trecho ainda está "global" e será ajustado no próximo passo,
-		// mas você pediu para ajustar apenas o pré-cadastro.
-		if (userRepository.existsByEmail(email)) {
-			preCadastroRepository.deleteByEmail(email);
-			throw new BusinessException("E-mail já cadastrado.");
-		}
-		if (salaoRepository.existsBySlug(pre.getSlug())) {
-			preCadastroRepository.deleteByEmail(email);
-			throw new BusinessException("Endereço de estabelecimento já está em uso.");
-		}
+	    if (pre.getExpiresAt().isBefore(LocalDateTime.now())) {
+	        preCadastroRepository.delete(pre);
+	        throw new BusinessException("Código expirado. Solicite um novo cadastro.");
+	    }
 
-		// 1) Cria salão (trial começa aqui)
-		Estabelecimentos estabelecimento = new Estabelecimentos();
-		estabelecimento.setNome(pre.getNome());
-		estabelecimento.setTelefone(pre.getTelefone());
-		estabelecimento.setRamoAtuacao(pre.getRamoAtuacao());
-		estabelecimento.setSlug(pre.getSlug());
-		estabelecimento.setStatusAssinatura(StatusAssinatura.TRIAL);
-		estabelecimento.setTrialEndsAt(LocalDateTime.now().plusDays(14));
+	    if (pre.getAttempts() >= 5) {
+	        preCadastroRepository.delete(pre);
+	        throw new BusinessException("Muitas tentativas. Refazer cadastro.");
+	    }
 
-		salaoRepository.save(estabelecimento);
+	    String codigoHash = TokenHashUtils.sha256(codigo);
+	    if (!codigoHash.equals(pre.getCodigoHash())) {
+	        pre.setAttempts(pre.getAttempts() + 1);
+	        preCadastroRepository.save(pre);
+	        throw new BusinessException("Código inválido.");
+	    }
 
-		// 2) Cria user ADMIN
-		User admin = new User();
-		admin.setNome(pre.getNome());
-		admin.setEmail(email);
-		admin.setTelefone(pre.getTelefone());
-		admin.setSenhaHash(pre.getSenhaHash());
-		admin.setPerfil(PerfilUser.ADMIN);
-		admin.setAtivo(true);
+	    // Race condition: slug não pode ter virado um estabelecimento entre preRegister e confirm
+	    if (salaoRepository.existsBySlug(pre.getSlug())) {
+	        preCadastroRepository.delete(pre);
+	        throw new BusinessException("Endereço de estabelecimento já está em uso.");
+	    }
 
-		admin.setEmailVerificado(true);
-		admin.setSalaoId(estabelecimento.getId());
+	    // 1) Cria salão
+	    Estabelecimentos estabelecimento = new Estabelecimentos();
+	    estabelecimento.setNome(pre.getNome());
+	    estabelecimento.setTelefone(pre.getTelefone());
+	    estabelecimento.setRamoAtuacao(pre.getRamoAtuacao());
+	    estabelecimento.setSlug(pre.getSlug());
+	    estabelecimento.setStatusAssinatura(StatusAssinatura.TRIAL);
+	    estabelecimento.setTrialEndsAt(LocalDateTime.now().plusDays(14));
+	    salaoRepository.save(estabelecimento);
 
-		userRepository.save(admin);
+	    Long estId = estabelecimento.getId();
 
-		// 3) Define owner do salão
-		estabelecimento.setOwnerUser(admin);
-		salaoRepository.save(estabelecimento);
+	    // 2) Cria user ADMIN (multi-tenant: valida por estabelecimento)
+	    // (Opcional, mas deixa mensagem amigável. Em corrida, o UNIQUE do banco garante)
+	    if (userRepository.existsByEstabelecimentoIdAndEmail(estId, email)) {
+	        throw new BusinessException("E-mail já cadastrado neste estabelecimento.");
+	    }
+	    if (pre.getTelefone() != null && !pre.getTelefone().isBlank()
+	            && userRepository.existsByEstabelecimentoIdAndTelefone(estId, pre.getTelefone())) {
+	        throw new BusinessException("Telefone já cadastrado neste estabelecimento.");
+	    }
 
-		// 4) Apaga pré-cadastro
-		preCadastroRepository.deleteByEmail(email);
+	    User admin = new User();
+	    admin.setNome(pre.getNome());
+	    admin.setEmail(email);
+	    admin.setTelefone(pre.getTelefone());
+	    admin.setSenhaHash(pre.getSenhaHash());
+	    admin.setPerfil(PerfilUser.ADMIN);
+	    admin.setAtivo(true);
+	    admin.setEmailVerificado(true);
+	    admin.setSalaoId(estId);
+
+	    userRepository.save(admin);
+
+	    // 3) Define owner do salão
+	    estabelecimento.setOwnerUser(admin);
+	    salaoRepository.save(estabelecimento);
+
+	    // 4) Apaga pré-cadastro (por slug)
+	    preCadastroRepository.delete(pre);
 	}
 
 	private static class PreRegisterResult {

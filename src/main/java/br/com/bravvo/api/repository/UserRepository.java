@@ -58,4 +58,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByTelefoneAndPerfil(String telefone, PerfilUser perfil);
 
     long countByTelefoneAndPerfil(String telefone, PerfilUser perfil);
+    
+	boolean existsByEstabelecimentoIdAndEmail(Long estabelecimentoId, String email);
+	boolean existsByEstabelecimentoIdAndTelefone(Long estabelecimentoId, String telefone);
 }

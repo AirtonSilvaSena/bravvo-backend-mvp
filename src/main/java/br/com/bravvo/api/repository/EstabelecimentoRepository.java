@@ -12,4 +12,5 @@ public interface EstabelecimentoRepository extends JpaRepository<Estabelecimento
 	
 	Optional<Estabelecimentos> findByOwnerUserId(Long ownerUserId);
 	
+
 }

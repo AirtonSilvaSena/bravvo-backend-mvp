@@ -13,6 +13,9 @@ public class EstabelecimentoConfirmEmailRequestDTO {
 	@NotBlank
 	@Size(min = 4, max = 10)
 	private String codigo;
+	
+	@NotBlank
+	private String slug;
 
 	public String getEmail() {
 		return email;
@@ -27,6 +30,14 @@ public class EstabelecimentoConfirmEmailRequestDTO {
 	}
 
 	public void setCodigo(String codigo) {
+		this.codigo = codigo;
+	}
+	
+	public String getSlug() {
+		return codigo;
+	}
+
+	public void setSlug(String codigo) {
 		this.codigo = codigo;
 	}
 }
