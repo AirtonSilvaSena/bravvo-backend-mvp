@@ -122,11 +122,11 @@ public class User {
         return updatedAt;
     }
     
-    public Long getSalaoId() {
+    public Long getEstabelecimentoId() {
         return estabelecimentoId;
     }
 
-    public void setSalaoId(Long estabelecimentoId) {
+    public void setEstabelecimentoId(Long estabelecimentoId) {
         this.estabelecimentoId = estabelecimentoId;
     }
 

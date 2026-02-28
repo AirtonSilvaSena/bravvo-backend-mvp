@@ -184,12 +184,12 @@ public class EstabelecimentoOnboardingService {
 	    User admin = new User();
 	    admin.setNome(pre.getNome());
 	    admin.setEmail(email);
-	    admin.setTelefone(pre.getTelefone());
+	    //admin.setTelefone(pre.getTelefone());
 	    admin.setSenhaHash(pre.getSenhaHash());
 	    admin.setPerfil(PerfilUser.ADMIN);
 	    admin.setAtivo(true);
 	    admin.setEmailVerificado(true);
-	    admin.setSalaoId(estId);
+	    admin.setEstabelecimentoId(estId);
 
 	    userRepository.save(admin);
 

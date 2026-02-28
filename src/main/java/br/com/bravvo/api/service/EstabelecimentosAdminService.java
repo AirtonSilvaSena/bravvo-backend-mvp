@@ -9,9 +9,8 @@ import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.repository.EstabelecimentoRepository;
 import br.com.bravvo.api.repository.UserRepository;
+import br.com.bravvo.api.security.TenantContext;
 import jakarta.transaction.Transactional;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneOffset;
@@ -33,8 +32,18 @@ public class EstabelecimentosAdminService {
     public EstabelecimentoMeResponseDTO getMe() {
         User admin = getAuthenticatedAdminOrThrow();
 
-        Estabelecimentos est = estabelecimentoRepository.findByOwnerUserId(admin.getId())
-                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado para este admin."));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
+        // Recomendado: garante que o token está no mesmo tenant do usuário no banco
+        if (admin.getEstabelecimentoId() == null) {
+            throw new ForbiddenException("Usuário não possui estabelecimento associado.");
+        }
+        if (!admin.getEstabelecimentoId().equals(estabelecimentoId)) {
+            throw new ForbiddenException("Token não pertence a este estabelecimento.");
+        }
+
+        Estabelecimentos est = estabelecimentoRepository.findById(estabelecimentoId)
+                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
 
         return toMeResponse(est);
     }
@@ -43,8 +52,17 @@ public class EstabelecimentosAdminService {
     public EstabelecimentoMeResponseDTO updateMe(EstabelecimentoMeUpdateRequestDTO dto) {
         User admin = getAuthenticatedAdminOrThrow();
 
-        Estabelecimentos est = estabelecimentoRepository.findByOwnerUserId(admin.getId())
-                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado para este admin."));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
+        if (admin.getEstabelecimentoId() == null) {
+            throw new ForbiddenException("Usuário não possui estabelecimento associado.");
+        }
+        if (!admin.getEstabelecimentoId().equals(estabelecimentoId)) {
+            throw new ForbiddenException("Token não pertence a este estabelecimento.");
+        }
+
+        Estabelecimentos est = estabelecimentoRepository.findById(estabelecimentoId)
+                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
 
         // Atualiza somente campos permitidos (slug e assinatura ficam imutáveis aqui)
         est.setNome(dto.getNome().trim());
@@ -62,13 +80,8 @@ public class EstabelecimentosAdminService {
     }
 
     private User getAuthenticatedAdminOrThrow() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-
-        if (auth == null || !auth.isAuthenticated()) {
-            throw new ForbiddenException("Usuário não autenticado.");
-        }
-
-        String email = auth.getName();
+        // Mantém seu padrão: encontra pelo email do auth
+        String email = TenantContext.getEmailOrThrow();
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
@@ -91,7 +104,6 @@ public class EstabelecimentosAdminService {
     private String buildLogoUrl(Estabelecimentos e) {
         if (e.getLogoKey() == null || e.getLogoKey().isBlank()) return null;
 
-        // STEP 4 vai criar esse endpoint
         String base = "/api/admin/estabelecimento/me/logo";
 
         if (e.getLogoUpdatedAt() == null) return base;
@@ -100,10 +112,6 @@ public class EstabelecimentosAdminService {
         return base + "?v=" + v;
     }
 
-    /**
-     * Monta o DTO do estabelecimento sem usar Mapper.
-     * Mantém o contrato do frontend e evita erro de construtor.
-     */
     private EstabelecimentoMeResponseDTO toMeResponse(Estabelecimentos e) {
         EstabelecimentoMeResponseDTO dto = new EstabelecimentoMeResponseDTO();
 
@@ -118,7 +126,6 @@ public class EstabelecimentosAdminService {
         dto.setCidade(e.getCidade());
         dto.setSlug(e.getSlug());
 
-        // statusAssinatura pode ser String ou Enum dependendo da sua entity
         Object status = e.getStatusAssinatura();
         dto.setStatusAssinatura(status == null ? null : status.toString());
 
@@ -126,7 +133,6 @@ public class EstabelecimentosAdminService {
         dto.setCreatedAt(e.getCreatedAt());
         dto.setUpdatedAt(e.getUpdatedAt());
 
-        // ✅ novo campo
         dto.setLogoUrl(buildLogoUrl(e));
 
         return dto;

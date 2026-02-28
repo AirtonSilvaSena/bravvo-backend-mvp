@@ -156,7 +156,7 @@ public class AuthService {
         refreshTokenRepository.save(newRt);
 
         // Novo access token mantendo contexto do salão
-        Long salaoId = user.getSalaoId();
+        Long salaoId = user.getEstabelecimentoId();
         String slug = null;
 
         if (salaoId != null) {
