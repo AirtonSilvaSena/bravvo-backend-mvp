@@ -25,9 +25,6 @@ public class AuthController {
         this.authService = authService;
     }
 
-    /**
-     * LOGIN (slug + email + senha) -> access + refresh token
-     */
     @Operation(
             summary = "Login do usuário (por estabelecimento)",
             description = """
@@ -36,7 +33,7 @@ public class AuthController {
                 Regras:
                 - Login é somente por e-mail (qualquer perfil).
                 - Slug é obrigatório.
-                - Usuário deve existir no estabelecimento (users.estabelecimento_id).
+                - Usuário deve possuir vínculo com o estabelecimento (estabelecimento_users).
                 - Estabelecimento INADIMPLENTE/CANCELADO bloqueia login.
                 """
     )
@@ -44,7 +41,7 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Login realizado com sucesso"),
             @ApiResponse(responseCode = "400", description = "Dados inválidos"),
             @ApiResponse(responseCode = "401", description = "Credenciais inválidas"),
-            @ApiResponse(responseCode = "403", description = "Usuário inativo / estabelecimento bloqueado"),
+            @ApiResponse(responseCode = "403", description = "Usuário inativo / vínculo inativo / estabelecimento bloqueado"),
             @ApiResponse(responseCode = "404", description = "Estabelecimento não encontrado")
     })
     @PostMapping("/login")
@@ -52,9 +49,6 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(dto.getSlug(), dto.getEmail(), dto.getSenha()));
     }
 
-    /**
-     * REFRESH - Recebe refresh token e retorna novo access + novo refresh token
-     */
     @Operation(
             summary = "Renovar tokens",
             description = """
@@ -62,7 +56,7 @@ public class AuthController {
 
                 Regras:
                 - Refresh token deve estar válido e não revogado.
-                - A sessão é renovada dentro do mesmo contexto de estabelecimento do token.
+                - O perfil do JWT é recalculado a partir do vínculo (estabelecimento_users).
                 """
     )
     @ApiResponses({
@@ -75,9 +69,6 @@ public class AuthController {
         return ResponseEntity.ok(authService.refresh(dto.getRefreshToken()));
     }
 
-    /**
-     * LOGOUT - Revoga o refresh token informado
-     */
     @Operation(
             summary = "Logout do usuário",
             description = """
@@ -98,23 +89,20 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * ME - Retorna dados do usuário autenticado
-     */
     @Operation(
             summary = "Usuário autenticado",
             description = """
                 Retorna os dados do usuário atualmente autenticado com base no JWT (access token).
 
                 Multi-tenant:
-                - A identificação do usuário ocorre no contexto do estabelecimento presente no token.
-                - O mesmo e-mail pode existir em estabelecimentos diferentes.
+                - A identificação ocorre no contexto do estabelecimento presente no token.
+                - O perfil retornado vem do vínculo (estabelecimento_users).
                 """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Usuário autenticado"),
             @ApiResponse(responseCode = "401", description = "Token inválido ou ausente"),
-            @ApiResponse(responseCode = "403", description = "Usuário inativo ou sem permissão")
+            @ApiResponse(responseCode = "403", description = "Usuário inativo ou vínculo inativo")
     })
     @GetMapping("/me")
     public ResponseEntity<MeResponseDTO> me() {
@@ -138,6 +126,7 @@ public class AuthController {
 
                 Multi-tenant:
                 - A atualização ocorre no contexto do estabelecimento presente no token.
+                - O perfil é mantido pelo vínculo (estabelecimento_users).
 
                 Requer Authorization: Bearer <token>
                 """
@@ -146,7 +135,7 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Dados atualizados com sucesso"),
             @ApiResponse(responseCode = "400", description = "Dados inválidos"),
             @ApiResponse(responseCode = "401", description = "Token inválido ou ausente"),
-            @ApiResponse(responseCode = "403", description = "Usuário inativo ou não autenticado")
+            @ApiResponse(responseCode = "403", description = "Usuário inativo, vínculo inativo ou não autenticado")
     })
     @PutMapping("/me")
     public ResponseEntity<MeResponseDTO> updateMe(@Valid @RequestBody UserMeUpdateRequestDTO dto) {

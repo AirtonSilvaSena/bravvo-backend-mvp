@@ -13,21 +13,15 @@ import java.util.Map;
  * Fonte única de verdade do contexto autenticado (usuário + tenant).
  *
  * Objetivo:
- * - Em ambiente multi-tenant, endpoints autenticados NÃO devem "adivinhar" o estabelecimento por owner.
+ * - Em ambiente multi-tenant, endpoints autenticados NÃO devem "adivinhar" o estabelecimento.
  * - O estabelecimento atual vem do JWT (claim) no momento do login com slug.
- *
- * Como extrai:
- * - Tenta obter estabelecimentoId do principal (CustomUserDetails com getEstabelecimentoId()).
- * - Ou do authentication.details (Map com "estabelecimentoId" ou "salaoId").
  *
  * Observação:
  * - Essa classe NÃO acessa banco. Apenas lê SecurityContext.
  */
 public class TenantContext {
 
-    private TenantContext() {
-        // utilitário
-    }
+    private TenantContext() { }
 
     public static Authentication getAuthenticationOrThrow() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -62,7 +56,24 @@ public class TenantContext {
 
         throw new ForbiddenException("Contexto de estabelecimento não informado no token.");
     }
-    
+
+    /**
+     * Opcional: retorna userId do token se disponível nos details.
+     * Útil para serviços que prefiram userId em vez de e-mail.
+     */
+    public static Long getUserIdOrThrow() {
+        Authentication auth = getAuthenticationOrThrow();
+
+        Long fromPrincipal = tryGetLongViaGetter(auth.getPrincipal(), "getUserId");
+        if (fromPrincipal != null) return fromPrincipal;
+
+        Object details = auth.getDetails();
+        Long fromDetails = tryGetLongFromDetails(details, "userId");
+        if (fromDetails != null) return fromDetails;
+
+        throw new ForbiddenException("Identificador do usuário não informado no token.");
+    }
+
     private static Long tryGetLongViaGetter(Object target, String getterName) {
         if (target == null) return null;
         try {
@@ -72,7 +83,6 @@ public class TenantContext {
         } catch (NoSuchMethodException e) {
             return null;
         } catch (Exception e) {
-            // se existir getter mas falhar por algum motivo, deixa explícito
             throw new ForbiddenException("Falha ao ler contexto do token: " + getterName);
         }
     }

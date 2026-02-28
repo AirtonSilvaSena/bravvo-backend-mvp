@@ -2,8 +2,8 @@ package br.com.bravvo.api.service;
 
 import br.com.bravvo.api.dto.auth.AuthResponseDTO;
 import br.com.bravvo.api.dto.auth.MeResponseDTO;
-import br.com.bravvo.api.dto.auth.RegisterRequestDTO;
 import br.com.bravvo.api.dto.user.UserMeUpdateRequestDTO;
+import br.com.bravvo.api.entity.EstabelecimentoUser;
 import br.com.bravvo.api.entity.Estabelecimentos;
 import br.com.bravvo.api.entity.RefreshToken;
 import br.com.bravvo.api.entity.User;
@@ -13,6 +13,7 @@ import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.ForbiddenException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.repository.EstabelecimentoRepository;
+import br.com.bravvo.api.repository.EstabelecimentoUserRepository;
 import br.com.bravvo.api.repository.RefreshTokenRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.security.JwtService;
@@ -32,6 +33,7 @@ import java.util.Base64;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final EstabelecimentoUserRepository estabelecimentoUserRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -39,12 +41,14 @@ public class AuthService {
 
     public AuthService(
             UserRepository userRepository,
+            EstabelecimentoUserRepository estabelecimentoUserRepository,
             RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             EstabelecimentoRepository estabelecimentoRepository
     ) {
         this.userRepository = userRepository;
+        this.estabelecimentoUserRepository = estabelecimentoUserRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -57,8 +61,12 @@ public class AuthService {
      * Regras:
      * - login somente por email (qualquer perfil)
      * - slug obrigatório
-     * - usuário deve pertencer ao estabelecimento (users.estabelecimento_id)
+     * - vínculo estabelecimento_users obrigatório e ativo (fonte de verdade)
      * - estabelecimento INADIMPLENTE/CANCELADO bloqueia
+     *
+     * Obs (fase atual):
+     * - enquanto users ainda possuir estabelecimento_id, buscamos user por (estabelecimentoId + email)
+     *   para evitar ambiguidades de e-mail repetido em tenants diferentes.
      */
     public AuthResponseDTO login(String slug, String email, String senha) {
 
@@ -81,8 +89,8 @@ public class AuthService {
             throw new ForbiddenException("Acesso indisponível para este estabelecimento.");
         }
 
-        // User precisa existir dentro do estabelecimento
-        User user = userRepository.findByEmailAndEstabelecimentoId(emailTrim, estab.getId())
+        // User precisa existir dentro do estabelecimento (fase atual)
+        User user = userRepository.findByEstabelecimentoIdAndEmail(estab.getId(), emailTrim)
                 .orElseThrow(() -> new BusinessException("Credenciais inválidas."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {
@@ -93,8 +101,19 @@ public class AuthService {
             throw new BusinessException("Credenciais inválidas.");
         }
 
-        // JWT com salao_id + slug
-        String accessToken = jwtService.generateAccessToken(user, estab.getId(), estab.getSlug());
+        // Vínculo é a fonte de verdade do perfil
+        EstabelecimentoUser link = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estab.getId(), user.getId())
+                .orElseThrow(() -> new ForbiddenException("Usuário não possui vínculo com este estabelecimento."));
+
+        if (Boolean.FALSE.equals(link.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
+
+        PerfilUser perfilVinculo = link.getPerfil();
+
+        // JWT com estabelecimento_id + slug + perfil do vínculo
+        String accessToken = jwtService.generateAccessToken(user, estab.getId(), estab.getSlug(), perfilVinculo);
 
         // Refresh token (rotacionável)
         String refreshRaw = generateSecureToken();
@@ -116,9 +135,10 @@ public class AuthService {
      * - cria um novo refresh (rotação)
      * - gera novo access token
      *
-     * Observação multi-tenant:
-     * - gera o novo JWT mantendo salao_id do usuário (user.estabelecimentoId)
-     * - se o salão estiver INADIMPLENTE/CANCELADO, bloqueia refresh
+     * Observação multi-tenant (fase atual):
+     * - Como o refresh token está atrelado ao "user row" (ainda por estabelecimento),
+     *   ainda usamos user.estabelecimentoId nesta fase.
+     * - O perfil no JWT é recalculado pelo vínculo estabelecimento_users.
      */
     public AuthResponseDTO refresh(String refreshTokenRaw) {
 
@@ -156,12 +176,12 @@ public class AuthService {
         newRt.setExpiresAt(LocalDateTime.now().plusDays(jwtService.getRefreshTokenDays()));
         refreshTokenRepository.save(newRt);
 
-        // Novo access token mantendo contexto do salão
-        Long salaoId = user.getEstabelecimentoId();
+        // Mantém contexto do estabelecimento (fase atual)
+        Long estabelecimentoId = user.getEstabelecimentoId();
         String slug = null;
 
-        if (salaoId != null) {
-            Estabelecimentos estab = estabelecimentoRepository.findById(salaoId)
+        if (estabelecimentoId != null) {
+            Estabelecimentos estab = estabelecimentoRepository.findById(estabelecimentoId)
                     .orElseThrow(() -> new ForbiddenException("Estabelecimento inválido."));
 
             if (estab.getStatusAssinatura() == StatusAssinatura.INADIMPLENTE
@@ -172,7 +192,21 @@ public class AuthService {
             slug = estab.getSlug();
         }
 
-        String newAccessToken = jwtService.generateAccessToken(user, salaoId, slug);
+        // Perfil deve vir do vínculo
+        PerfilUser perfilVinculo = null;
+        if (estabelecimentoId != null) {
+            EstabelecimentoUser link = estabelecimentoUserRepository
+                    .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                    .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
+
+            if (Boolean.FALSE.equals(link.getAtivo())) {
+                throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+            }
+
+            perfilVinculo = link.getPerfil();
+        }
+
+        String newAccessToken = jwtService.generateAccessToken(user, estabelecimentoId, slug, perfilVinculo);
 
         return new AuthResponseDTO(newAccessToken, newRefreshRaw, jwtService.getAccessTokenExpiresInSeconds());
     }
@@ -192,6 +226,10 @@ public class AuthService {
 
     /**
      * ME - retorna dados do usuário autenticado (via email do JWT)
+     *
+     * Multi-tenant:
+     * - user é resolvido no contexto do estabelecimento do token
+     * - perfil vem do vínculo estabelecimento_users
      */
     public MeResponseDTO me() {
         Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
@@ -205,15 +243,31 @@ public class AuthService {
             throw new ForbiddenException("Usuário inativo.");
         }
 
+        EstabelecimentoUser link = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
+
+        if (Boolean.FALSE.equals(link.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
+
         return new MeResponseDTO(
                 user.getId(),
                 user.getNome(),
                 user.getEmail(),
                 user.getTelefone(),
-                user.getPerfil()
+                link.getPerfil()
         );
     }
 
+    /**
+     * PUT /api/auth/me - atualiza dados do próprio usuário.
+     *
+     * Regras:
+     * - Sem validação por perfil (ADMIN/FUNCIONARIO/CLIENTE), pois altera apenas o próprio usuário.
+     * - Nome obrigatório (DTO @NotBlank).
+     * - Senha é opcional.
+     */
     @Transactional
     public MeResponseDTO updateMe(UserMeUpdateRequestDTO dto) {
 
@@ -234,6 +288,15 @@ public class AuthService {
             throw new ForbiddenException("Usuário inativo.");
         }
 
+        // vínculo precisa existir e estar ativo
+        EstabelecimentoUser link = estabelecimentoUserRepository
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
+
+        if (Boolean.FALSE.equals(link.getAtivo())) {
+            throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
+        }
+
         user.setNome(dto.getNome().trim());
         user.setTelefone(dto.getTelefone() == null ? null : dto.getTelefone().trim());
 
@@ -248,7 +311,7 @@ public class AuthService {
                 user.getNome(),
                 user.getEmail(),
                 user.getTelefone(),
-                user.getPerfil()
+                link.getPerfil()
         );
     }
 

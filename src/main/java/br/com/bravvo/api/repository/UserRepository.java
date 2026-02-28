@@ -11,12 +11,29 @@ import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
+    /**
+     * ATENÇÃO:
+     * Enquanto users ainda tiver estabelecimento_id (e puder ter emails duplicados entre tenants),
+     * findByEmail pode ser ambíguo em alguns cenários.
+     * Mantido por compatibilidade.
+     */
     Optional<User> findByEmail(String email);
 
     boolean existsByEmail(String email);
 
-    // ✅ novo: login multi-tenant
-    Optional<User> findByEmailAndEstabelecimentoId(String email, Long estabelecimentoId);
+    Optional<User> findByEstabelecimentoIdAndEmail(Long estabelecimentoId, String email);
+
+    boolean existsByEstabelecimentoIdAndEmail(Long estabelecimentoId, String email);
+
+    boolean existsByEstabelecimentoIdAndTelefone(Long estabelecimentoId, String telefone);
+
+    Optional<User> findByTelefone(String telefone);
+
+    boolean existsByTelefone(String telefone);
+
+    Optional<User> findByTelefoneAndPerfil(String telefone, PerfilUser perfil);
+
+    long countByTelefoneAndPerfil(String telefone, PerfilUser perfil);
 
     @Query("""
             SELECT u
@@ -50,18 +67,4 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> searchAtivosByPerfilAndQ(@Param("perfil") PerfilUser perfil,
                                         @Param("q") String q,
                                         Pageable pageable);
-
-    Optional<User> findByTelefone(String telefone);
-
-    boolean existsByTelefone(String telefone);
-
-    Optional<User> findByTelefoneAndPerfil(String telefone, PerfilUser perfil);
-
-    long countByTelefoneAndPerfil(String telefone, PerfilUser perfil);
-    
-	boolean existsByEstabelecimentoIdAndEmail(Long estabelecimentoId, String email);
-	boolean existsByEstabelecimentoIdAndTelefone(Long estabelecimentoId, String telefone);
-	
-	Optional<User> findByEstabelecimentoIdAndEmail(Long estabelecimentoId, String email);
-	
 }

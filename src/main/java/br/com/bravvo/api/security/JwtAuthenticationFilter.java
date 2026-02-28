@@ -18,8 +18,8 @@ import java.io.IOException;
  * Ele:
  * 1) Lê Authorization: Bearer <token>
  * 2) Valida JWT (assinatura + expiração)
- * 3) Extrai subject (email) e (opcional) salao_id
- * 4) Autentica no SecurityContext
+ * 3) Extrai subject (email) e estabelecimento_id
+ * 4) Autentica no SecurityContext com ROLE_<perfil do vínculo>
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -33,7 +33,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain)
             throws ServletException, IOException {
 
         String authHeader = request.getHeader("Authorization");
@@ -52,29 +54,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String email = jwtService.getSubject(token);
         Long estabelecimentoId = jwtService.getEstabelecimentoId(token);
+        Long userId = jwtService.getUserId(token);
+        var perfil = jwtService.getPerfil(token);
 
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
 
+            // Multi-tenant é obrigatório para endpoints autenticados do Bravvo
             UserDetails userDetails;
-
-            // Multi-tenant: se tiver salao_id no token, carrega o usuário dentro do salão
             if (estabelecimentoId != null) {
                 userDetails = userDetailsService.loadUserByEmailAndEstabelecimentoId(email, estabelecimentoId);
             } else {
+                // fallback (não ideal) — mantém compatibilidade
                 userDetails = userDetailsService.loadUserByUsername(email);
             }
 
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
 
-            //authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             var webDetails = new WebAuthenticationDetailsSource().buildDetails(request);
 
             authentication.setDetails(java.util.Map.of(
                     "estabelecimentoId", estabelecimentoId,
+                    "userId", userId,
+                    "perfil", perfil != null ? perfil.name() : null,
                     "web", webDetails
             ));
-            
+
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
 
