@@ -80,11 +80,12 @@ public class EstabelecimentosAdminService {
     }
 
     private User getAuthenticatedAdminOrThrow() {
-        // Mantém seu padrão: encontra pelo email do auth
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
         String email = TenantContext.getEmailOrThrow();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
+        User user = userRepository
+                .findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado neste estabelecimento."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {
             throw new ForbiddenException("Usuário inativo.");
