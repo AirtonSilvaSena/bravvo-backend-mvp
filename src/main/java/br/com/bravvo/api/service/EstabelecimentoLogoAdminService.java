@@ -93,8 +93,15 @@ public class EstabelecimentoLogoAdminService {
     public ResponseEntity<byte[]> getLogoResponse() {
         User admin = getAuthenticatedAdminOrThrow();
 
-        Estabelecimentos est = estabelecimentoRepository.findByOwnerUserId(admin.getId())
-                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado para este admin."));
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
+        // garante que o token bate com o usuário (opcional mas recomendado)
+        if (admin.getEstabelecimentoId() == null || !admin.getEstabelecimentoId().equals(estabelecimentoId)) {
+            throw new ForbiddenException("Token não pertence a este estabelecimento.");
+        }
+
+        Estabelecimentos est = estabelecimentoRepository.findById(estabelecimentoId)
+                .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado."));
 
         if (est.getLogoKey() == null || est.getLogoKey().isBlank()) {
             throw new NotFoundException("Este estabelecimento ainda não possui logo.");
@@ -120,7 +127,6 @@ public class EstabelecimentoLogoAdminService {
 
             return ResponseEntity.ok()
                     .contentType(mediaType)
-                    // cache forte; o cache-busting é via ?v=logoUpdatedAt
                     .cacheControl(CacheControl.maxAge(365, java.util.concurrent.TimeUnit.DAYS).cachePublic())
                     .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(bytes.length))
                     .body(bytes);
@@ -152,16 +158,17 @@ public class EstabelecimentoLogoAdminService {
             throw new ForbiddenException("Usuário não autenticado.");
         }
 
-        String email = auth.getName();
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+        String email = TenantContext.getEmailOrThrow();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
+        User user = userRepository
+                .findByEstabelecimentoIdAndEmail(estabelecimentoId, email)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado neste estabelecimento."));
 
         if (Boolean.FALSE.equals(user.getAtivo())) {
             throw new ForbiddenException("Usuário inativo.");
         }
 
-        // você já tem PerfilUser.ADMIN; mantive checagem aqui para não depender da outra service
         if (user.getPerfil() == null || !"ADMIN".equals(user.getPerfil().name())) {
             throw new ForbiddenException("Acesso permitido somente para ADMIN.");
         }
