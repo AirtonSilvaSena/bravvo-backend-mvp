@@ -85,8 +85,9 @@ public class PublicCatalogService {
         // =========================
         // 2) Busca funcionários ativos que executam o serviço
         // =========================
+        long teste = 1455;
         List<FuncionarioBasicProjection> funcionarios =
-                funcionarioServicoRepository.findFuncionariosAtivosByServicoId(servicoId, PerfilUser.FUNCIONARIO);
+                funcionarioServicoRepository.findFuncionariosAtivosByServicoId(teste, servicoId, PerfilUser.FUNCIONARIO);
 
         if (funcionarios.isEmpty()) {
             return Collections.emptyList();
