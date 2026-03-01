@@ -1,6 +1,6 @@
 package br.com.bravvo.api.repository;
 
-import br.com.bravvo.api.entity.EstabelecimentoUser;
+
 import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import org.springframework.data.domain.*;
