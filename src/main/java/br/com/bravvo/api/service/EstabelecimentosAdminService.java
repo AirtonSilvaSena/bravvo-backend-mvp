@@ -63,6 +63,7 @@ public class EstabelecimentosAdminService {
         est.setCidade(dto.getCidade() == null ? null : dto.getCidade().trim());
         est.setSobreNos(dto.getSobreNos() == null ? null : dto.getSobreNos().trim());
         est.setInstagramUrl(dto.getInstagramUrl() == null ? null : dto.getInstagramUrl().trim());
+        est.setCep(dto.getCep() == null ? null : dto.getCep().trim());
 
         estabelecimentoRepository.save(est);
 
@@ -136,6 +137,7 @@ public class EstabelecimentosAdminService {
         dto.setSlug(e.getSlug());
         dto.setSobreNos(e.getSobreNos());
         dto.setInstagramUrl(e.getInstagramUrl());
+        dto.setCep(e.getCep());
 
         Object status = e.getStatusAssinatura();
         dto.setStatusAssinatura(status == null ? null : status.toString());

@@ -27,13 +27,15 @@ public class PublicEstabelecimentoPublicoResponseDTO {
 	
 	private String sobreNos;
 	private String instagramUrl;
+	
+	private String cep;
 
 	public PublicEstabelecimentoPublicoResponseDTO() {
 	}
 
 	public PublicEstabelecimentoPublicoResponseDTO(String slug, String nome, String telefone, String ramoAtuacao,
 			String endereco, String numero, String bairro, String cidade, String estado, String statusAssinatura,
-			LocalDateTime trialEndsAt, String logoUrl,  String sobreNos, String instagramUrl) {
+			LocalDateTime trialEndsAt, String logoUrl,  String sobreNos, String instagramUrl, String cep) {
 		this.slug = slug;
 		this.nome = nome;
 		this.telefone = telefone;
@@ -48,6 +50,7 @@ public class PublicEstabelecimentoPublicoResponseDTO {
 		this.logoUrl = logoUrl;
 		this.sobreNos = sobreNos;
 		this.instagramUrl = instagramUrl;
+		this.cep = cep;
 	}
 
 	public String getSlug() {
@@ -160,5 +163,13 @@ public class PublicEstabelecimentoPublicoResponseDTO {
 
 	public void setInstagramUrl(String instagramUrl) {
 		this.instagramUrl = instagramUrl;
+	}
+	
+	public String getCep() {
+		return cep;
+	}
+
+	public void setCep(String cep) {
+		this.cep = cep;
 	}
 }

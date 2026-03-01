@@ -21,6 +21,7 @@ public class EstabelecimentoMeResponseDTO {
 	private String logoUrl;
 	private String sobreNos;
 	private String instagramUrl;
+	private String cep;
 
 	public EstabelecimentoMeResponseDTO() {
 	}
@@ -42,7 +43,8 @@ public class EstabelecimentoMeResponseDTO {
 	        LocalDateTime updatedAt,
 	        String logoUrl,
 	        String sobreNos,
-	        String instagramUrl
+	        String instagramUrl,
+	        String cep
 	) {
 	    this.id = id;
 	    this.nome = nome;
@@ -61,6 +63,7 @@ public class EstabelecimentoMeResponseDTO {
 	    this.logoUrl = logoUrl;
 	    this.sobreNos = sobreNos;
 	    this.instagramUrl = instagramUrl;
+	    this.cep = cep;
 	}
 
 	public Long getId() {
@@ -197,5 +200,13 @@ public class EstabelecimentoMeResponseDTO {
 
 	public void setInstagramUrl(String instagramUrl) {
 		this.instagramUrl = instagramUrl;
+	}
+	
+	public String getCep() {
+	    return cep;
+	}
+	
+	public void setCep(String cep) {
+	    this.cep = cep;
 	}
 }

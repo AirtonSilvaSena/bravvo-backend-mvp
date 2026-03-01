@@ -35,7 +35,10 @@ public class EstabelecimentoMeUpdateRequestDTO {
 
 	@Size(max = 255, message = "Instagram deve ter no máximo 255 caracteres.")
 	private String instagramUrl;
-
+	
+	@Size(max = 9, message = "CEP deve ter no máximo 9 caracteres.")
+	private String cep;
+	
 	public String getNome() {
 		return nome;
 	}
@@ -67,7 +70,11 @@ public class EstabelecimentoMeUpdateRequestDTO {
 	public String getCidade() {
 		return cidade;
 	}
-
+	
+	public String getCep() {
+		return cep;
+	}
+	
 	public void setNome(String nome) {
 		this.nome = nome;
 	}
@@ -114,5 +121,9 @@ public class EstabelecimentoMeUpdateRequestDTO {
 
 	public void setInstagramUrl(String instagramUrl) {
 		this.instagramUrl = instagramUrl;
+	}
+	
+	public void setCep(String cep) {
+		this.cep = cep;
 	}
 }

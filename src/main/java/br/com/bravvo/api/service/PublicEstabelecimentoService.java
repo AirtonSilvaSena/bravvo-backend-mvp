@@ -81,7 +81,8 @@ public class PublicEstabelecimentoService {
                 estab.getTrialEndsAt(),
                 logoUrl,
                 estab.getSobreNos(),
-                estab.getInstagramUrl()
+                estab.getInstagramUrl(),
+                estab.getCep()
         );
     }
 

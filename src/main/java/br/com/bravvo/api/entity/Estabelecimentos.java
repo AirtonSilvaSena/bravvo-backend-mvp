@@ -60,6 +60,13 @@ public class Estabelecimentos {
 	private String slug;
 	
 	/**
+	 * CEP do estabelecimento.
+	 * BD: varchar(9) NULL
+	 */
+	@Column(name = "cep", length = 9)
+	private String cep;
+	
+	/**
 	 * Texto institucional público do estabelecimento.
 	 * BD: TEXT NULL
 	 */
@@ -268,5 +275,13 @@ public class Estabelecimentos {
 
 	public void setInstagramUrl(String instagramUrl) {
 		this.instagramUrl = instagramUrl;
+	}
+	
+	public String getCep() {
+		return cep;
+	}
+	
+	public void setCep(String cep) {
+		this.cep = cep;
 	}
 }
