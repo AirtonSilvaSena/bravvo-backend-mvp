@@ -1,84 +1,84 @@
 package br.com.bravvo.api.entity;
 
-import br.com.bravvo.api.enums.StatusServico;
 import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * Entidade Servico (tabela: servicos).
+ * Entity Servico - alinhada com o schema atual do banco.
  *
- * Representa um item do catálogo de serviços.
+ * Tabela: servicos
  *
- * Observação importante: - O campo status é persistido como STRING (VARCHAR),
- * usando diretamente o valor do enum (ATIVO / INATIVO).
+ * Observações do schema: - estabelecimento_id é DEFAULT NULL (nullable). -
+ * status é varchar(20) NOT NULL DEFAULT 'ativo' (string no banco). - created_at
+ * e updated_at possuem defaults e ON UPDATE (controlados pelo banco).
  */
 @Entity
-@Table(name = "servicos")
+@Table(name = "servicos", indexes = { @Index(name = "idx_servicos_status", columnList = "status"),
+		@Index(name = "idx_servicos_nome", columnList = "nome"),
+		@Index(name = "idx_servicos_estabelecimento", columnList = "estabelecimento_id"),
+		@Index(name = "idx_servicos_estabelecimento_status", columnList = "estabelecimento_id,status") })
 public class Servico {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(nullable = false, length = 120)
+	/**
+	 * BD: bigint unsigned DEFAULT NULL
+	 */
+	@Column(name = "estabelecimento_id")
+	private Long estabelecimentoId;
+
+	@Column(name = "nome", nullable = false, length = 120)
 	private String nome;
 
-	@Column(length = 500)
+	@Column(name = "descricao", length = 500)
 	private String descricao;
 
-	/**
-	 * Duração do serviço em minutos. Mapeia a coluna duracao_min do banco.
-	 */
 	@Column(name = "duracao_min", nullable = false)
 	private Integer duracaoMin;
 
 	/**
-	 * Valor do serviço. DECIMAL(10,2) no banco.
+	 * BD: decimal(10,2) NOT NULL DEFAULT 0.00
 	 */
-	@Column(nullable = false, precision = 10, scale = 2)
-	private BigDecimal valor;
+	@Column(name = "valor", nullable = false, precision = 10, scale = 2)
+	private BigDecimal valor = BigDecimal.ZERO;
 
 	/**
-	 * Status do serviço (ATIVO / INATIVO). Persistido como STRING no banco.
+	 * BD: varchar(20) NOT NULL DEFAULT 'ativo'
+	 *
+	 * Mantemos como String para refletir 1:1 o schema atual. (Quando quiser,
+	 * migramos para enum + converter.)
 	 */
-	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 20)
-	private StatusServico status = StatusServico.ATIVO;
+	@Column(name = "status", nullable = false, length = 20)
+	private String status = "ativo";
 
-	@Column(name = "created_at", nullable = false, updatable = false)
+	/**
+	 * BD controla via DEFAULT current_timestamp()
+	 */
+	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private LocalDateTime createdAt;
 
-	@Column(name = "updated_at", nullable = false)
+	/**
+	 * BD controla via DEFAULT current_timestamp() ON UPDATE current_timestamp()
+	 */
+	@Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
 	private LocalDateTime updatedAt;
 
-	// =========================
-	// Callbacks JPA
-	// =========================
-
-	@PrePersist
-	protected void onCreate() {
-		this.createdAt = LocalDateTime.now();
-		this.updatedAt = LocalDateTime.now();
-
-		// Defesa: garante status padrão
-		if (this.status == null) {
-			this.status = StatusServico.ATIVO;
-		}
-	}
-
-	@PreUpdate
-	protected void onUpdate() {
-		this.updatedAt = LocalDateTime.now();
-	}
-
-	// =========================
-	// Getters and Setters
-	// =========================
+	// getters/setters
 
 	public Long getId() {
 		return id;
+	}
+
+	public Long getEstabelecimentoId() {
+		return estabelecimentoId;
+	}
+
+	public void setEstabelecimentoId(Long estabelecimentoId) {
+		this.estabelecimentoId = estabelecimentoId;
 	}
 
 	public String getNome() {
@@ -113,11 +113,11 @@ public class Servico {
 		this.valor = valor;
 	}
 
-	public StatusServico getStatus() {
+	public String getStatus() {
 		return status;
 	}
 
-	public void setStatus(StatusServico status) {
+	public void setStatus(String status) {
 		this.status = status;
 	}
 

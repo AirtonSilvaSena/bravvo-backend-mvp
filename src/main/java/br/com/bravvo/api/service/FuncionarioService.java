@@ -17,14 +17,11 @@ import br.com.bravvo.api.repository.FuncionarioServicoRepository;
 import br.com.bravvo.api.repository.ServicoRepository;
 import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.security.TenantContext;
-import jakarta.transaction.Transactional;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-
-import org.springframework.security.core.context.SecurityContextHolder;
+import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -35,6 +32,11 @@ import java.util.stream.Collectors;
  * auto-configuração (self-service).
  *
  * Admin NÃO usa isso.
+ *
+ * Multi-tenant:
+ * - Sempre filtrar por estabelecimentoId (TenantContext).
+ * - Identidade do usuário vem do token (userId), sem depender de e-mail global.
+ * - Perfil vem do vínculo estabelecimento_users (EstabelecimentoUser), não do User.
  */
 @Service
 public class FuncionarioService {
@@ -66,22 +68,29 @@ public class FuncionarioService {
      * com:
      * - habilitado (funcionario_servicos)
      * - duracaoFuncionarioMin (funcionario_prefs)
+     *
+     * Multi-tenant: tudo filtrado por estabelecimentoId.
      */
     public List<FuncionarioServicoConfigResponseDTO> getMeServicos() {
 
-        // 1) Valida e recupera o funcionário logado via JWT (multi-tenant via vínculo)
-        User funcionario = getFuncionarioLogado();
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-        // 2) Busca vínculos: quais serviços o funcionário habilitou
+        // 1) Valida e recupera o funcionário logado via JWT (multi-tenant via vínculo)
+        User funcionario = getFuncionarioLogado(estabelecimentoId);
+
+        // 2) Busca vínculos: quais serviços o funcionário habilitou (TENANT-SAFE)
         Set<Long> habilitados = new HashSet<>(
-                funcionarioServicoRepository.findServicoIdsByFuncionarioId(funcionario.getId())
+                funcionarioServicoRepository.findServicoIdsByEstabelecimentoIdAndFuncionarioId(
+                        estabelecimentoId,
+                        funcionario.getId()
+                )
         );
 
-        // 3) Busca prefs: durações personalizadas por serviço
-        Map<Long, Integer> duracoesCustom = loadDuracoesFromPrefs(funcionario.getId());
+        // 3) Busca prefs: durações personalizadas por serviço (TENANT-SAFE)
+        Map<Long, Integer> duracoesCustom = loadDuracoesFromPrefs(estabelecimentoId, funcionario.getId());
 
-        // 4) Busca todos os serviços ativos do sistema
-        var servicosAtivos = servicoRepository.findAllAtivos();
+        // 4) Busca todos os serviços ativos do estabelecimento (TENANT-SAFE)
+        var servicosAtivos = servicoRepository.findAllAtivosByEstabelecimentoId(estabelecimentoId);
 
         // 5) Monta o formato final para o front
         return servicosAtivos.stream().map(servico -> {
@@ -104,6 +113,100 @@ public class FuncionarioService {
         }).collect(Collectors.toList());
     }
 
+    /**
+     * Atualiza (sincroniza) os serviços habilitados e preferências do funcionário logado.
+     *
+     * Regras:
+     * - Apenas FUNCIONARIO pode chamar
+     * - Apenas serviços ATIVOS do estabelecimento podem ser habilitados
+     * - Persiste:
+     *   - funcionario_servicos (vínculos)
+     *   - funcionario_prefs.prefs_json (duração por serviço)
+     *
+     * Multi-tenant: tudo filtrado por estabelecimentoId.
+     */
+    @Transactional
+    public List<FuncionarioServicoConfigResponseDTO> updateMeServicos(FuncionarioServicosUpdateRequestDTO request) {
+
+        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
+        // 1) valida e obtém funcionário logado
+        User funcionario = getFuncionarioLogado(estabelecimentoId);
+
+        // 2) normaliza request
+        var items = (request != null && request.getServicos() != null)
+                ? request.getServicos()
+                : Collections.<FuncionarioServicoConfigItemRequestDTO>emptyList();
+
+        // Coleta IDs que o funcionário deseja habilitar
+        List<Long> habilitarIds = items.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
+                .map(FuncionarioServicoConfigItemRequestDTO::getServicoId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        // 3) valida se os serviços habilitados existem e estão ATIVOS (TENANT-SAFE)
+        if (!habilitarIds.isEmpty()) {
+            List<Long> ativos = servicoRepository.findActiveIdsByEstabelecimentoIdAndIds(estabelecimentoId, habilitarIds);
+            Set<Long> ativosSet = new HashSet<>(ativos);
+
+            List<Long> invalidos = habilitarIds.stream()
+                    .filter(id -> !ativosSet.contains(id))
+                    .toList();
+
+            if (!invalidos.isEmpty()) {
+                throw new BusinessException("Serviços inválidos ou inativos: " + invalidos);
+            }
+        }
+
+        // 4) sincroniza funcionario_servicos (TENANT-SAFE): apaga tudo do funcionário no tenant e recria
+        funcionarioServicoRepository.deleteAllByEstabelecimentoIdAndFuncionarioId(estabelecimentoId, funcionario.getId());
+
+        if (!habilitarIds.isEmpty()) {
+            List<FuncionarioServico> novos = habilitarIds.stream().map(servicoId -> {
+                FuncionarioServico fs = new FuncionarioServico();
+                // Se sua entidade FuncionarioServico tem coluna estabelecimentoId:
+                fs.setEstabelecimentoId(estabelecimentoId);
+
+                // ID composto atual (funcionarioId, servicoId)
+                fs.setId(new FuncionarioServicoId(funcionario.getId(), servicoId));
+                return fs;
+            }).toList();
+
+            funcionarioServicoRepository.saveAll(novos);
+        }
+
+        // 5) monta prefs_json com durações personalizadas
+        Map<Long, Integer> duracoes = items.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
+                .filter(i -> i.getServicoId() != null)
+                .filter(i -> i.getDuracaoMin() != null)
+                .collect(Collectors.toMap(
+                        FuncionarioServicoConfigItemRequestDTO::getServicoId,
+                        FuncionarioServicoConfigItemRequestDTO::getDuracaoMin,
+                        (a, b) -> b
+                ));
+
+        String prefsJson = buildPrefsJson(duracoes);
+
+        // 6) upsert em funcionario_prefs (TENANT-SAFE)
+        FuncionarioPrefs prefs = funcionarioPrefsRepository
+                .findByEstabelecimentoIdAndFuncionarioId(estabelecimentoId, funcionario.getId())
+                .orElseGet(() -> {
+                    FuncionarioPrefs p = new FuncionarioPrefs();
+                    p.setEstabelecimentoId(estabelecimentoId);
+                    p.setFuncionarioId(funcionario.getId());
+                    return p;
+                });
+
+        prefs.setPrefsJson(prefsJson);
+        funcionarioPrefsRepository.save(prefs);
+
+        // 7) retorna a lista atualizada
+        return getMeServicos();
+    }
+
     // ==========================================================
     // Auxiliares
     // ==========================================================
@@ -116,24 +219,15 @@ public class FuncionarioService {
      * - vínculo no tenant atual está ativo
      * - perfil do vínculo é FUNCIONARIO
      *
-     * Importante: Admin NÃO acessa esse módulo por regra de produto.
-     *
-     * Multi-tenant (refatorado):
-     * - Perfil NÃO é lido de User.
-     * - Perfil é validado via vínculo EstabelecimentoUser (estabelecimento_users).
+     * Multi-tenant:
+     * - userId vem do token (TenantContext).
+     * - vínculo validado por (estabelecimentoId, userId).
      */
-    private User getFuncionarioLogado() {
+    private User getFuncionarioLogado(Long estabelecimentoId) {
 
-        var auth = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = TenantContext.getUserIdOrThrow();
 
-        if (auth == null || !auth.isAuthenticated()) {
-            throw new ForbiddenException("Usuário não autenticado.");
-        }
-
-        Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
-        String email = auth.getName();
-
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ForbiddenException("Usuário não encontrado."));
 
         if (!Boolean.TRUE.equals(user.getAtivo())) {
@@ -141,7 +235,7 @@ public class FuncionarioService {
         }
 
         EstabelecimentoUser vinculo = estabelecimentoUserRepository
-                .findByEstabelecimentoIdAndUserId(estabelecimentoId, user.getId())
+                .findByEstabelecimentoIdAndUser_Id(estabelecimentoId, userId)
                 .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
 
         if (Boolean.FALSE.equals(vinculo.getAtivo())) {
@@ -160,8 +254,9 @@ public class FuncionarioService {
      *
      * Se não existir prefs, retorna vazio.
      */
-    private Map<Long, Integer> loadDuracoesFromPrefs(Long funcionarioId) {
-        return funcionarioPrefsRepository.findById(funcionarioId)
+    private Map<Long, Integer> loadDuracoesFromPrefs(Long estabelecimentoId, Long funcionarioId) {
+        return funcionarioPrefsRepository
+                .findByEstabelecimentoIdAndFuncionarioId(estabelecimentoId, funcionarioId)
                 .map(prefs -> parseDuracoes(prefs.getPrefsJson()))
                 .orElse(Collections.emptyMap());
     }
@@ -204,85 +299,6 @@ public class FuncionarioService {
             // Importante: se JSON estiver inválido, não quebra nada.
             return Collections.emptyMap();
         }
-    }
-
-    /**
-     * Atualiza (sincroniza) os serviços habilitados e preferências do funcionário logado.
-     *
-     * Regras:
-     * - Apenas FUNCIONARIO pode chamar
-     * - Apenas serviços ATIVOS podem ser habilitados
-     * - Persiste:
-     *   - funcionario_servicos (vínculos)
-     *   - funcionario_prefs.prefs_json (duração por serviço)
-     */
-    @Transactional
-    public List<FuncionarioServicoConfigResponseDTO> updateMeServicos(FuncionarioServicosUpdateRequestDTO request) {
-
-        // 1) valida e obtém funcionário logado
-        User funcionario = getFuncionarioLogado();
-
-        // 2) normaliza e valida request (evita NPE / ids duplicados)
-        var items = request.getServicos();
-
-        // Coleta IDs que o funcionário deseja habilitar
-        List<Long> habilitarIds = items.stream()
-                .filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
-                .map(FuncionarioServicoConfigItemRequestDTO::getServicoId)
-                .distinct()
-                .toList();
-
-        // 3) valida se os serviços habilitados existem e estão ATIVOS
-        if (!habilitarIds.isEmpty()) {
-            List<Long> ativos = servicoRepository.findActiveIdsByIds(habilitarIds);
-            Set<Long> ativosSet = new HashSet<>(ativos);
-
-            List<Long> invalidos = habilitarIds.stream()
-                    .filter(id -> !ativosSet.contains(id))
-                    .toList();
-
-            if (!invalidos.isEmpty()) {
-                throw new BusinessException("Serviços inválidos ou inativos: " + invalidos);
-            }
-        }
-
-        // 4) sincroniza funcionario_servicos (apaga tudo e recria)
-        funcionarioServicoRepository.deleteAllByFuncionarioId(funcionario.getId());
-
-        if (!habilitarIds.isEmpty()) {
-            List<FuncionarioServico> novos = habilitarIds.stream().map(servicoId -> {
-                FuncionarioServico fs = new FuncionarioServico();
-                fs.setId(new FuncionarioServicoId(funcionario.getId(), servicoId));
-                return fs;
-            }).toList();
-
-            funcionarioServicoRepository.saveAll(novos);
-        }
-
-        // 5) monta prefs_json com durações personalizadas
-        Map<Long, Integer> duracoes = items.stream()
-                .filter(i -> Boolean.TRUE.equals(i.getHabilitado()))
-                .filter(i -> i.getDuracaoMin() != null)
-                .collect(Collectors.toMap(
-                        FuncionarioServicoConfigItemRequestDTO::getServicoId,
-                        FuncionarioServicoConfigItemRequestDTO::getDuracaoMin,
-                        (a, b) -> b
-                ));
-
-        String prefsJson = buildPrefsJson(duracoes);
-
-        // 6) upsert em funcionario_prefs
-        FuncionarioPrefs prefs = funcionarioPrefsRepository.findById(funcionario.getId()).orElseGet(() -> {
-            FuncionarioPrefs p = new FuncionarioPrefs();
-            p.setFuncionarioId(funcionario.getId());
-            return p;
-        });
-
-        prefs.setPrefsJson(prefsJson);
-        funcionarioPrefsRepository.save(prefs);
-
-        // 7) retorna a lista atualizada
-        return getMeServicos();
     }
 
     /**

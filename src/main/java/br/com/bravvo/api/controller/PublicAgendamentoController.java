@@ -66,22 +66,5 @@ public class PublicAgendamentoController {
         return ResponseEntity.ok(Map.of("success", true, "data", data));
     }
 
-    @Operation(
-            summary = "Consulta agendamento por protocolo (público)",
-            description = """
-                    Endpoint público para consultar um agendamento pelo protocolo, no estabelecimento do slug informado.
-                    """
-    )
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Agendamento encontrado"),
-            @ApiResponse(responseCode = "404", description = "Protocolo não encontrado")
-    })
-    @GetMapping("/{protocolo}")
-    public ResponseEntity<?> getByProtocolo(
-            @PathVariable String slug,
-            @PathVariable String protocolo
-    ) {
-        AgendamentoItemResponseDTO data = agendamentoService.getPublicByProtocolo(protocolo);
-        return ResponseEntity.ok(Map.of("success", true, "data", data));
-    }
+    
 }

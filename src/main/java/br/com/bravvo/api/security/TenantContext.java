@@ -4,7 +4,6 @@ import br.com.bravvo.api.exception.ForbiddenException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
@@ -12,17 +11,25 @@ import java.util.Map;
  *
  * Fonte única de verdade do contexto autenticado (usuário + tenant).
  *
- * Objetivo:
+ * Regras:
  * - Em ambiente multi-tenant, endpoints autenticados NÃO devem "adivinhar" o estabelecimento.
- * - O estabelecimento atual vem do JWT (claim) no momento do login com slug.
+ * - O estabelecimento atual vem do JWT e é injetado no SecurityContext pelo JwtAuthenticationFilter.
  *
- * Observação:
- * - Essa classe NÃO acessa banco. Apenas lê SecurityContext.
+ * Observações:
+ * - Esta classe NÃO acessa banco.
+ * - Apenas lê SecurityContext.
+ * - Para evitar dependência de "email global", preferimos userId vindo do token.
  */
-public class TenantContext {
+public final class TenantContext {
 
-    private TenantContext() { }
+    private TenantContext() {}
 
+    /**
+     * Obtém o Authentication do SecurityContext.
+     *
+     * @return authentication autenticado
+     * @throws ForbiddenException se não estiver autenticado
+     */
     public static Authentication getAuthenticationOrThrow() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
@@ -31,6 +38,12 @@ public class TenantContext {
         return auth;
     }
 
+    /**
+     * Retorna o e-mail do usuário autenticado (subject do JWT).
+     *
+     * @return email
+     * @throws ForbiddenException se não houver e-mail
+     */
     public static String getEmailOrThrow() {
         Authentication auth = getAuthenticationOrThrow();
         String email = auth.getName();
@@ -42,68 +55,53 @@ public class TenantContext {
 
     /**
      * Retorna o estabelecimentoId (tenant) do contexto autenticado.
-     * Esse valor deve vir do JWT (login com slug).
+     *
+     * Fonte:
+     * - auth.getDetails(): Map com "estabelecimentoId" (populado pelo JwtAuthenticationFilter)
+     *
+     * @return estabelecimentoId
+     * @throws ForbiddenException se não existir no token/contexto
      */
     public static Long getEstabelecimentoIdOrThrow() {
         Authentication auth = getAuthenticationOrThrow();
+        Long estabelecimentoId = readLongFromDetails(auth.getDetails(), "estabelecimentoId");
 
-        Long fromPrincipal = tryGetLongViaGetter(auth.getPrincipal(), "getEstabelecimentoId");
-        if (fromPrincipal != null) return fromPrincipal;
-
-        Object details = auth.getDetails();
-        Long fromDetails = tryGetLongFromDetails(details, "estabelecimentoId");
-        if (fromDetails != null) return fromDetails;
-
-        throw new ForbiddenException("Contexto de estabelecimento não informado no token.");
+        if (estabelecimentoId == null) {
+            throw new ForbiddenException("Contexto de estabelecimento não informado no token.");
+        }
+        return estabelecimentoId;
     }
 
     /**
-     * Opcional: retorna userId do token se disponível nos details.
-     * Útil para serviços que prefiram userId em vez de e-mail.
+     * Retorna o userId do token/contexto.
+     *
+     * Fonte:
+     * - auth.getDetails(): Map com "userId" (populado pelo JwtAuthenticationFilter)
+     *
+     * @return userId
+     * @throws ForbiddenException se não existir no token/contexto
      */
     public static Long getUserIdOrThrow() {
         Authentication auth = getAuthenticationOrThrow();
+        Long userId = readLongFromDetails(auth.getDetails(), "userId");
 
-        Long fromPrincipal = tryGetLongViaGetter(auth.getPrincipal(), "getUserId");
-        if (fromPrincipal != null) return fromPrincipal;
-
-        Object details = auth.getDetails();
-        Long fromDetails = tryGetLongFromDetails(details, "userId");
-        if (fromDetails != null) return fromDetails;
-
-        throw new ForbiddenException("Identificador do usuário não informado no token.");
-    }
-
-    private static Long tryGetLongViaGetter(Object target, String getterName) {
-        if (target == null) return null;
-        try {
-            Method m = target.getClass().getMethod(getterName);
-            Object value = m.invoke(target);
-            return coerceToLong(value);
-        } catch (NoSuchMethodException e) {
-            return null;
-        } catch (Exception e) {
-            throw new ForbiddenException("Falha ao ler contexto do token: " + getterName);
+        if (userId == null) {
+            throw new ForbiddenException("Identificador do usuário não informado no token.");
         }
+        return userId;
     }
 
     @SuppressWarnings("unchecked")
-    private static Long tryGetLongFromDetails(Object details, String key) {
-        if (details == null) return null;
+    private static Long readLongFromDetails(Object details, String key) {
+        if (!(details instanceof Map<?, ?> map)) return null;
 
-        if (details instanceof Map<?, ?> map) {
-            Object value = map.get(key);
-            return coerceToLong(value);
-        }
+        Object v = map.get(key);
+        if (v == null) return null;
 
-        return null;
-    }
+        if (v instanceof Long l) return l;
+        if (v instanceof Integer i) return i.longValue();
 
-    private static Long coerceToLong(Object value) {
-        if (value == null) return null;
-        if (value instanceof Long l) return l;
-        if (value instanceof Integer i) return i.longValue();
-        if (value instanceof String s) {
+        if (v instanceof String s) {
             if (s.isBlank()) return null;
             try {
                 return Long.parseLong(s.trim());

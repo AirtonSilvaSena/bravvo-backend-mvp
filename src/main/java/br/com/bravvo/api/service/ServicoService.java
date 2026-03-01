@@ -11,206 +11,238 @@ import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.mapper.ServicoMapper;
 import br.com.bravvo.api.repository.ServicoRepository;
+import br.com.bravvo.api.security.TenantContext;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Service responsável pelas regras de negócio do domínio Serviço.
+ * ========================================================= SERVICE - DOMÍNIO
+ * SERVIÇO =========================================================
  *
- * Observações importantes:
- * - Não controla permissão por perfil (isso fica no Controller via @PreAuthorize)
- * - Trabalha sempre com DTOs e Entities via Mapper
- * - Centraliza validações e exceções
+ * Multi-tenant: - Todas operações utilizam estabelecimentoId via TenantContext.
+ *
+ * Status no BD: - Campo varchar(20) - Valores persistidos: "ativo" | "inativo"
+ *
+ * DTO usa enum StatusServico (ATIVO / INATIVO) O service converte enum → String
+ * do banco.
  */
 @Service
 public class ServicoService {
 
-    private final ServicoRepository servicoRepository;
+	private static final String STATUS_ATIVO = "ativo";
+	private static final String STATUS_INATIVO = "inativo";
 
-    public ServicoService(ServicoRepository servicoRepository) {
-        this.servicoRepository = servicoRepository;
-    }
+	private final ServicoRepository servicoRepository;
 
-    // =========================================================
-    // LISTAGEM PAGINADA
-    // =========================================================
+	public ServicoService(ServicoRepository servicoRepository) {
+		this.servicoRepository = servicoRepository;
+	}
 
-    /**
-     * Retorna lista paginada de serviços.
-     *
-     * Endpoint:
-     *   GET /api/servicos
-     *
-     * Query params:
-     * - page (1-based)
-     * - limit
-     * - search (nome)
-     * - status (ATIVO | INATIVO)
-     */
-    @Transactional(readOnly = true)
-    public PagedResponseDTO<ServicoResponseDTO> listPaged(
-            int page,
-            int limit,
-            String search,
-            StatusServico status
-    ) {
+	// =========================================================
+	// LISTAGEM PAGINADA
+	// =========================================================
 
-        // PageRequest é 0-based, mas o front usa 1-based
-        Pageable pageable = PageRequest.of(
-                Math.max(page - 1, 0),
-                limit,
-                Sort.by("nome").ascending()
-        );
+	/**
+	 * Lista serviços do tenant com paginação e filtros opcionais.
+	 *
+	 * GET /api/servicos
+	 *
+	 * @param page   Página 1-based
+	 * @param limit  Quantidade por página
+	 * @param search Filtro por nome
+	 * @param status Filtro por status ("ativo" | "inativo")
+	 */
+	@Transactional(readOnly = true)
+	public PagedResponseDTO<ServicoResponseDTO> listPaged(int page, int limit, String search, String status) {
+		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-        Page<Servico> result = servicoRepository.search(status, search, pageable);
+		Pageable pageable = PageRequest.of(Math.max(page - 1, 0), limit, Sort.by("nome").ascending());
 
-        List<ServicoResponseDTO> items = result
-                .getContent()
-                .stream()
-                .map(ServicoMapper::toResponse)
-                .toList();
+		String statusNorm = normalizeStatusOrNull(status);
+		String searchNorm = (search == null || search.isBlank()) ? null : search.trim();
 
-        return new PagedResponseDTO<>(
-                page,
-                limit,
-                result.getTotalElements(),
-                result.getTotalPages(),
-                items
-        );
-    }
+		Page<Servico> result = servicoRepository.search(estabelecimentoId, statusNorm, searchNorm, pageable);
 
-    // =========================================================
-    // BUSCAR POR ID
-    // =========================================================
+		List<ServicoResponseDTO> items = result.getContent().stream().map(ServicoMapper::toResponse).toList();
 
-    /**
-     * Retorna um serviço pelo ID.
-     *
-     * Endpoint:
-     *   GET /api/servicos/{id}
-     */
-    @Transactional(readOnly = true)
-    public ServicoResponseDTO getById(Long id) {
+		return new PagedResponseDTO<>(page, limit, result.getTotalElements(), result.getTotalPages(), items);
+	}
 
-        Servico servico = servicoRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
+	// =========================================================
+	// BUSCAR POR ID
+	// =========================================================
 
-        return ServicoMapper.toResponse(servico);
-    }
+	@Transactional(readOnly = true)
+	public ServicoResponseDTO getById(Long id) {
+		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-    // =========================================================
-    // CRIAR
-    // =========================================================
+		Servico servico = servicoRepository.findByIdAndEstabelecimentoId(id, estabelecimentoId)
+				.orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
 
-    /**
-     * Cria um novo serviço.
-     *
-     * Endpoint:
-     *   POST /api/servicos
-     */
-    @Transactional
-    public ServicoResponseDTO create(ServicoCreateRequestDTO dto) {
+		return ServicoMapper.toResponse(servico);
+	}
 
-        // =========================
-        // Regra: não permitir nome duplicado
-        // =========================
-        String nomeNormalizado = dto.getNome().trim();
+	// =========================================================
+	// CRIAR
+	// =========================================================
 
-        if (servicoRepository.existsByNomeIgnoreCase(nomeNormalizado)) {
-            throw new BusinessException("Já existe um serviço cadastrado com esse nome.");
-        }
+	@Transactional
+	public ServicoResponseDTO create(ServicoCreateRequestDTO dto) {
+		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-        Servico servico = ServicoMapper.toEntity(dto);
+		if (dto == null || dto.getNome() == null || dto.getNome().isBlank()) {
+			throw new BusinessException("Informe o nome do serviço.");
+		}
 
-        // Defesa extra: garante status padrão
-        if (servico.getStatus() == null) {
-            servico.setStatus(StatusServico.ATIVO);
-        }
+		String nomeNormalizado = dto.getNome().trim();
 
-        // Garante que o nome salvo seja o normalizado (sem espaços)
-        servico.setNome(nomeNormalizado);
+		if (servicoRepository.existsByEstabelecimentoIdAndNomeIgnoreCase(estabelecimentoId, nomeNormalizado)) {
+			throw new BusinessException("Já existe um serviço cadastrado com esse nome.");
+		}
 
-        Servico saved = servicoRepository.save(servico);
-        return ServicoMapper.toResponse(saved);
-    }
+		Servico servico = ServicoMapper.toEntity(dto);
+		servico.setEstabelecimentoId(estabelecimentoId);
+		servico.setNome(nomeNormalizado);
 
-    // =========================================================
-    // ATUALIZAR (COMPLETO)
-    // =========================================================
+		// Status default
+		if (servico.getStatus() == null || servico.getStatus().isBlank()) {
+			servico.setStatus(STATUS_ATIVO);
+		} else {
+			servico.setStatus(normalizeStatusOrThrow(servico.getStatus()));
+		}
 
-    /**
-     * Atualiza um serviço existente.
-     *
-     * Endpoint:
-     *   PUT /api/servicos/{id}
-     */
-    @Transactional
-    public ServicoResponseDTO update(Long id, ServicoUpdateRequestDTO dto) {
+		Servico saved = servicoRepository.save(servico);
+		return ServicoMapper.toResponse(saved);
+	}
 
-        Servico servico = servicoRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
+	// =========================================================
+	// ATUALIZAR
+	// =========================================================
 
-        // =========================
-        // Regra: não permitir atualizar para um nome já existente (outro ID)
-        // =========================
-        String nomeNormalizado = dto.getNome().trim();
+	@Transactional
+	public ServicoResponseDTO update(Long id, ServicoUpdateRequestDTO dto) {
+		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-        if (servicoRepository.existsByNomeIgnoreCaseAndIdNot(nomeNormalizado, id)) {
-            throw new BusinessException("Já existe um serviço cadastrado com esse nome.");
-        }
+		Servico servico = servicoRepository.findByIdAndEstabelecimentoId(id, estabelecimentoId)
+				.orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
 
-        ServicoMapper.updateEntity(servico, dto);
+		if (dto == null || dto.getNome() == null || dto.getNome().isBlank()) {
+			throw new BusinessException("Informe o nome do serviço.");
+		}
 
-        // Garante o nome normalizado após o mapper
-        servico.setNome(nomeNormalizado);
+		String nomeNormalizado = dto.getNome().trim();
 
-        Servico updated = servicoRepository.save(servico);
-        return ServicoMapper.toResponse(updated);
-    }
-    // =========================================================
-    // ATUALIZAR STATUS
-    // =========================================================
+		if (servicoRepository.existsByEstabelecimentoIdAndNomeIgnoreCaseAndIdNot(estabelecimentoId, nomeNormalizado,
+				id)) {
+			throw new BusinessException("Já existe um serviço cadastrado com esse nome.");
+		}
 
-    /**
-     * Atualiza somente o status do serviço.
-     *
-     * Endpoint:
-     *   PUT /api/servicos/{id}/status
-     */
-    @Transactional
-    public ServicoResponseDTO updateStatus(Long id, ServicoStatusUpdateRequestDTO dto) {
+		ServicoMapper.updateEntity(servico, dto);
+		servico.setNome(nomeNormalizado);
 
-        Servico servico = servicoRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
+		// Defende status
+		if (servico.getStatus() == null || servico.getStatus().isBlank()) {
+			servico.setStatus(STATUS_ATIVO);
+		} else {
+			servico.setStatus(normalizeStatusOrThrow(servico.getStatus()));
+		}
 
-        servico.setStatus(dto.getStatus());
+		Servico updated = servicoRepository.save(servico);
+		return ServicoMapper.toResponse(updated);
+	}
 
-        Servico updated = servicoRepository.save(servico);
-        return ServicoMapper.toResponse(updated);
-    }
+	// =========================================================
+	// ATUALIZAR STATUS (ENUM → STRING)
+	// =========================================================
 
-    // =========================================================
-    // DELETE
-    // =========================================================
+	/**
+	 * Atualiza apenas o status do serviço.
+	 *
+	 * PUT /api/servicos/{id}/status
+	 *
+	 * DTO usa enum StatusServico.
+	 */
+	@Transactional
+	public ServicoResponseDTO updateStatus(Long id, ServicoStatusUpdateRequestDTO dto) {
+		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-    /**
-     * Remove um serviço.
-     *
-     * Endpoint:
-     *   DELETE /api/servicos/{id}
-     */
-    @Transactional
-    public void delete(Long id) {
+		Servico servico = servicoRepository.findByIdAndEstabelecimentoId(id, estabelecimentoId)
+				.orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
 
-        if (!servicoRepository.existsById(id)) {
-            throw new NotFoundException("Serviço não encontrado.");
-        }
+		if (dto == null || dto.getStatus() == null) {
+			throw new BusinessException("Informe o status.");
+		}
 
-        servicoRepository.deleteById(id);
-    }
-    
- 
+		// Converte enum → String do BD
+		String statusDb = convertEnumToDbValue(dto.getStatus());
+		servico.setStatus(statusDb);
+
+		Servico updated = servicoRepository.save(servico);
+		return ServicoMapper.toResponse(updated);
+	}
+
+	// =========================================================
+	// DELETE
+	// =========================================================
+
+	@Transactional
+	public void delete(Long id) {
+		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+
+		if (!servicoRepository.existsByIdAndEstabelecimentoId(id, estabelecimentoId)) {
+			throw new NotFoundException("Serviço não encontrado.");
+		}
+
+		servicoRepository.deleteById(id);
+	}
+
+	// =========================================================
+	// HELPERS
+	// =========================================================
+
+	/**
+	 * Normaliza status vindo como String.
+	 */
+	private String normalizeStatusOrNull(String raw) {
+		if (raw == null || raw.isBlank())
+			return null;
+
+		String s = raw.trim().toLowerCase();
+
+		if (Objects.equals(s, STATUS_ATIVO))
+			return STATUS_ATIVO;
+		if (Objects.equals(s, STATUS_INATIVO))
+			return STATUS_INATIVO;
+
+		return null;
+	}
+
+	private String normalizeStatusOrThrow(String raw) {
+		if (raw == null || raw.isBlank()) {
+			throw new BusinessException("Status inválido.");
+		}
+
+		String s = raw.trim().toLowerCase();
+
+		if (Objects.equals(s, STATUS_ATIVO))
+			return STATUS_ATIVO;
+		if (Objects.equals(s, STATUS_INATIVO))
+			return STATUS_INATIVO;
+
+		throw new BusinessException("Status inválido. Use 'ativo' ou 'inativo'.");
+	}
+
+	/**
+	 * Converte enum StatusServico para valor persistido no BD.
+	 */
+	private String convertEnumToDbValue(StatusServico status) {
+		return switch (status) {
+		case ATIVO -> STATUS_ATIVO;
+		case INATIVO -> STATUS_INATIVO;
+		};
+	}
 }

@@ -69,4 +69,7 @@ public interface FuncionarioServicoRepository extends JpaRepository<FuncionarioS
     );
 
     boolean existsByIdFuncionarioIdAndIdServicoId(Long funcionarioId, Long servicoId);
+    
+    List<Long> findServicoIdsByEstabelecimentoIdAndFuncionarioId(Long estabelecimentoId, Long funcionarioId);
+    void deleteAllByEstabelecimentoIdAndFuncionarioId(Long estabelecimentoId, Long funcionarioId);
 }

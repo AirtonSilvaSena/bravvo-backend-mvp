@@ -93,7 +93,7 @@ public class FuncionarioAgendamentoController {
 		            .orElseThrow(() -> new NotFoundException("Usuário não encontrado."))
 		            .getId();
 
-		    List<AgendamentoItemResponseDTO> data = agendamentoService.listFuncionario(funcionarioId, from, to, status);
+		    List<AgendamentoItemResponseDTO> data = agendamentoService.listFuncionario(from, to, status);
 		    return ResponseEntity.ok(Map.of("success", true, "data", data));
 		}
 }

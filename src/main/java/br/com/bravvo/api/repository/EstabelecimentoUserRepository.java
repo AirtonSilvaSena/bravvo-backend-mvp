@@ -80,4 +80,6 @@ public interface EstabelecimentoUserRepository extends JpaRepository<Estabelecim
 			""")
 	Page<User> searchUsersByTenant(Long estabelecimentoId, PerfilUser perfil, Boolean ativo, String q,
 			Pageable pageable);
+	
+	Optional<EstabelecimentoUser> findByEstabelecimentoIdAndUser_Id(Long estabelecimentoId, Long userId);
 }

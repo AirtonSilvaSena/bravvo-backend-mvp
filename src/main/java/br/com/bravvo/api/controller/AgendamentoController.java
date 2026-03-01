@@ -82,7 +82,7 @@ public class AgendamentoController {
 		Long clienteId = userRepository.findByEmail(email)
 				.orElseThrow(() -> new NotFoundException("Usuário não encontrado.")).getId();
 
-		List<AgendamentoItemResponseDTO> data = agendamentoService.listCliente(clienteId, from, to, status);
+		List<AgendamentoItemResponseDTO> data = agendamentoService.listCliente(from, to, status);
 		return ResponseEntity.ok(Map.of("success", true, "data", data));
 	}
 }

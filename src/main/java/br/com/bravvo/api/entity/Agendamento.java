@@ -5,95 +5,156 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * Agendamento (MVP - hora marcada).
+ * Entity Agendamento - alinhada com o schema atual do banco.
  *
  * Tabela: agendamentos
  *
- * MVP (decisões): - Sem relacionamentos JPA (evita cascade/fetch). - status
- * como String (sem enum/converter), valores no DB:
- * 'pendente','confirmado','em_atendimento','concluido','cancelado' - cliente
- * pode ser: - cadastrado (cliente_id != null) - visitante
- * (cliente_nome/telefone/email)
- *
- * Regras: - protocolo é único. - inicio/fim são obrigatórios.
+ * Observações do schema: - estabelecimento_id é DEFAULT NULL (nullable). -
+ * protocolo é NOT NULL e possui unique por (estabelecimento_id, protocolo). -
+ * tipo e status são varchar(50). - created_at e updated_at possuem defaults no
+ * banco (current_timestamp).
  */
 @Entity
-@Table(name = "agendamentos")
+@Table(name = "agendamentos", uniqueConstraints = {
+		@UniqueConstraint(name = "uk_ag_estabelecimento_protocolo", columnNames = { "estabelecimento_id",
+				"protocolo" }) }, indexes = {
+						@Index(name = "idx_ag_funcionario_inicio", columnList = "funcionario_id,inicio"),
+						@Index(name = "idx_ag_status_inicio", columnList = "status,inicio"),
+						@Index(name = "idx_ag_cliente_id", columnList = "cliente_id"),
+						@Index(name = "idx_ag_estabelecimento_inicio", columnList = "estabelecimento_id,inicio"),
+						@Index(name = "idx_ag_estabelecimento_funcionario_inicio", columnList = "estabelecimento_id,funcionario_id,inicio"),
+						@Index(name = "idx_ag_estabelecimento_status_inicio", columnList = "estabelecimento_id,status,inicio") })
 public class Agendamento {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(name = "protocolo", nullable = false, length = 30, unique = true)
+	/**
+	 * BD: bigint unsigned DEFAULT NULL
+	 */
+	@Column(name = "estabelecimento_id")
+	private Long estabelecimentoId;
+
+	/**
+	 * BD: varchar(30) NOT NULL
+	 */
+	@Column(name = "protocolo", nullable = false, length = 30)
 	private String protocolo;
 
 	/**
-	 * MVP: banco tem enum('hora_marcada'), mas agora está varchar? (ok). Vamos
-	 * manter o default lógico "hora_marcada".
+	 * BD: varchar(50) NOT NULL DEFAULT 'hora_marcada'
 	 */
-	@Column(name = "tipo", nullable = false, length = 30)
+	@Column(name = "tipo", nullable = false, length = 50)
 	private String tipo = "hora_marcada";
 
+	/**
+	 * BD: bigint unsigned NOT NULL
+	 */
 	@Column(name = "servico_id", nullable = false)
 	private Long servicoId;
 
+	/**
+	 * BD: bigint unsigned NOT NULL
+	 */
 	@Column(name = "funcionario_id", nullable = false)
 	private Long funcionarioId;
 
+	/**
+	 * BD: bigint unsigned DEFAULT NULL
+	 */
 	@Column(name = "cliente_id")
 	private Long clienteId;
 
+	/**
+	 * BD: varchar(120) DEFAULT NULL
+	 */
 	@Column(name = "cliente_nome", length = 120)
 	private String clienteNome;
 
+	/**
+	 * BD: varchar(30) DEFAULT NULL
+	 */
 	@Column(name = "cliente_telefone", length = 30)
 	private String clienteTelefone;
 
+	/**
+	 * BD: varchar(180) DEFAULT NULL
+	 */
 	@Column(name = "cliente_email", length = 180)
 	private String clienteEmail;
 
+	/**
+	 * BD: datetime NOT NULL
+	 */
 	@Column(name = "inicio", nullable = false)
 	private LocalDateTime inicio;
 
+	/**
+	 * BD: datetime NOT NULL
+	 */
 	@Column(name = "fim", nullable = false)
 	private LocalDateTime fim;
 
 	/**
-	 * MVP: String para não mexer em enum/converter agora. Valores:
-	 * 'pendente','confirmado','em_atendimento','concluido','cancelado'
+	 * BD: varchar(50) NOT NULL DEFAULT 'pendente'
 	 */
-	@Column(name = "status", nullable = false, length = 30)
+	@Column(name = "status", nullable = false, length = 50)
 	private String status = "pendente";
 
+	/**
+	 * BD: varchar(500) DEFAULT NULL
+	 */
 	@Column(name = "observacoes", length = 500)
 	private String observacoes;
 
+	/**
+	 * BD: datetime NOT NULL DEFAULT current_timestamp()
+	 */
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private LocalDateTime createdAt;
 
+	/**
+	 * BD: datetime NOT NULL DEFAULT current_timestamp() ON UPDATE
+	 * current_timestamp()
+	 */
 	@Column(name = "updated_at", nullable = false)
 	private LocalDateTime updatedAt;
 
 	@PrePersist
 	protected void onCreate() {
-		var now = LocalDateTime.now();
-		this.createdAt = now;
-		this.updatedAt = now;
-
-		if (this.tipo == null)
+		// Mantém defaults do Java (coerente com defaults do BD)
+		if (this.tipo == null || this.tipo.isBlank())
 			this.tipo = "hora_marcada";
-		if (this.status == null)
+		if (this.status == null || this.status.isBlank())
 			this.status = "pendente";
+
+		// Se não vier setado, preenche (o BD também preenche por default)
+		LocalDateTime now = LocalDateTime.now();
+		if (this.createdAt == null)
+			this.createdAt = now;
+		if (this.updatedAt == null)
+			this.updatedAt = now;
 	}
 
 	@PreUpdate
 	protected void onUpdate() {
+		// O BD atualiza por ON UPDATE; aqui mantemos atualizado também.
 		this.updatedAt = LocalDateTime.now();
 	}
 
+	// getters e setters
+
 	public Long getId() {
 		return id;
+	}
+
+	public Long getEstabelecimentoId() {
+		return estabelecimentoId;
+	}
+
+	public void setEstabelecimentoId(Long estabelecimentoId) {
+		this.estabelecimentoId = estabelecimentoId;
 	}
 
 	public String getProtocolo() {

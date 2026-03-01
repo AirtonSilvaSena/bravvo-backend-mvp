@@ -5,7 +5,6 @@ import br.com.bravvo.api.dto.publico.PublicServicoResponseDTO;
 import br.com.bravvo.api.entity.FuncionarioPrefs;
 import br.com.bravvo.api.entity.Servico;
 import br.com.bravvo.api.enums.PerfilUser;
-import br.com.bravvo.api.enums.StatusServico;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.repository.FuncionarioPrefsRepository;
 import br.com.bravvo.api.repository.FuncionarioServicoRepository;
@@ -21,148 +20,118 @@ import java.util.stream.Collectors;
 /**
  * Service responsável pelo catálogo público (/api/public/**).
  *
- * Endpoints:
- * - GET /api/public/servicos
- * - GET /api/public/servicos/{servicoId}/funcionarios
+ * Multi-tenant: - Todas as consultas são filtradas por estabelecimentoId
+ * (resolvido por slug no controller).
  *
- * Segurança:
- * - Não expõe dados sensíveis do funcionário
- * - Defensivo contra prefs_json inválido (não pode quebrar a API)
+ * Segurança: - Não expõe dados sensíveis do funcionário. - Defensivo contra
+ * prefs_json inválido (não derruba a API).
  */
 @Service
 public class PublicCatalogService {
 
-    private final ServicoRepository servicoRepository;
-    private final FuncionarioServicoRepository funcionarioServicoRepository;
-    private final FuncionarioPrefsRepository funcionarioPrefsRepository;
-    private final ObjectMapper objectMapper;
+	private final ServicoRepository servicoRepository;
+	private final FuncionarioServicoRepository funcionarioServicoRepository;
+	private final FuncionarioPrefsRepository funcionarioPrefsRepository;
+	private final ObjectMapper objectMapper;
 
-    public PublicCatalogService(
-            ServicoRepository servicoRepository,
-            FuncionarioServicoRepository funcionarioServicoRepository,
-            FuncionarioPrefsRepository funcionarioPrefsRepository,
-            ObjectMapper objectMapper
-    ) {
-        this.servicoRepository = servicoRepository;
-        this.funcionarioServicoRepository = funcionarioServicoRepository;
-        this.funcionarioPrefsRepository = funcionarioPrefsRepository;
-        this.objectMapper = objectMapper;
-    }
+	public PublicCatalogService(ServicoRepository servicoRepository,
+			FuncionarioServicoRepository funcionarioServicoRepository,
+			FuncionarioPrefsRepository funcionarioPrefsRepository, ObjectMapper objectMapper) {
+		this.servicoRepository = servicoRepository;
+		this.funcionarioServicoRepository = funcionarioServicoRepository;
+		this.funcionarioPrefsRepository = funcionarioPrefsRepository;
+		this.objectMapper = objectMapper;
+	}
 
-    /**
-     * Lista serviços públicos:
-     * - apenas ATIVOS
-     * - resposta mínima (id, nome, valor)
-     * - sem duração aqui (a duração correta é por funcionário)
-     */
-    public List<PublicServicoResponseDTO> listServicosPublicos() {
-        List<Servico> ativos = servicoRepository.findAllAtivos();
+	/**
+	 * Lista serviços públicos por estabelecimento: - apenas ATIVOS - resposta
+	 * mínima (id, nome, valor)
+	 */
+	public List<PublicServicoResponseDTO> listServicosPublicos(Long estabelecimentoId) {
 
-        return ativos.stream()
-                .map(s -> new PublicServicoResponseDTO(s.getId(), s.getNome(), s.getValor()))
-                .collect(Collectors.toList());
-    }
+		// OBS: seu repo precisa filtrar por estabelecimentoId e status="ativo"
+		List<Servico> ativos = servicoRepository.findAllAtivosByEstabelecimentoId(estabelecimentoId);
 
-    /**
-     * Lista funcionários que executam um serviço específico, retornando:
-     * - nome do funcionário (sem dados sensíveis)
-     * - valor do serviço
-     * - duração resolvida por funcionário (prefs -> fallback serviço)
-     */
-    public List<PublicFuncionarioServicoResponseDTO> listFuncionariosPorServico(Long servicoId) {
+		return ativos.stream().map(s -> new PublicServicoResponseDTO(s.getId(), s.getNome(), s.getValor()))
+				.collect(Collectors.toList());
+	}
 
-        // =========================
-        // 1) Valida serviço existente e ATIVO
-        // =========================
-        Servico servico = servicoRepository.findById(servicoId)
-                .orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
+	/**
+	 * Lista funcionários que executam um serviço específico no tenant.
+	 *
+	 * Regras: - serviço deve existir e estar ATIVO no mesmo estabelecimento -
+	 * funcionário deve: - estar ATIVO (users.ativo) - ter vínculo ATIVO no tenant
+	 * com perfil FUNCIONARIO - ter o serviço habilitado (funcionario_servicos)
+	 */
+	public List<PublicFuncionarioServicoResponseDTO> listFuncionariosPorServico(Long estabelecimentoId,
+			Long servicoId) {
 
-        if (servico.getStatus() != StatusServico.ATIVO) {
-            // catálogo público não deve revelar status interno; "indisponível" é suficiente
-            throw new NotFoundException("Serviço indisponível.");
-        }
+		// 1) valida serviço do tenant
+		Servico servico = servicoRepository.findByIdAndEstabelecimentoId(servicoId, estabelecimentoId)
+				.orElseThrow(() -> new NotFoundException("Serviço não encontrado."));
 
-        // =========================
-        // 2) Busca funcionários ativos que executam o serviço
-        // =========================
-        long teste = 1455;
-        List<FuncionarioBasicProjection> funcionarios =
-                funcionarioServicoRepository.findFuncionariosAtivosByServicoId(teste, servicoId, PerfilUser.FUNCIONARIO);
+		// ✅ CORREÇÃO: status agora é String ("ativo"/"inativo")
+		if (!isServicoAtivo(servico.getStatus())) {
+			throw new NotFoundException("Serviço indisponível.");
+		}
 
-        if (funcionarios.isEmpty()) {
-            return Collections.emptyList();
-        }
+		// 2) busca funcionários aptos (JOIN vínculo + user ativo + perfil)
+		List<FuncionarioBasicProjection> funcionarios = funcionarioServicoRepository
+				.findFuncionariosAtivosByServicoId(estabelecimentoId, servicoId, PerfilUser.FUNCIONARIO);
 
-        // =========================
-        // 3) Busca prefs em lote (evita N+1)
-        // =========================
-        List<Long> funcionarioIds = funcionarios.stream()
-                .map(FuncionarioBasicProjection::getId)
-                .toList();
+		if (funcionarios.isEmpty()) {
+			return Collections.emptyList();
+		}
 
-        Map<Long, FuncionarioPrefs> prefsMap = funcionarioPrefsRepository.findAllById(funcionarioIds).stream()
-                .collect(Collectors.toMap(FuncionarioPrefs::getFuncionarioId, p -> p));
+		// 3) prefs em lote (tenant-safe)
+		List<Long> funcionarioIds = funcionarios.stream().map(FuncionarioBasicProjection::getId).toList();
 
-        // =========================
-        // 4) Monta resposta com duração resolvida
-        // =========================
-        List<PublicFuncionarioServicoResponseDTO> result = new ArrayList<>();
+		Map<Long, FuncionarioPrefs> prefsMap = funcionarioPrefsRepository
+				.findAllByEstabelecimentoIdAndFuncionarioIdIn(estabelecimentoId, funcionarioIds).stream()
+				.collect(Collectors.toMap(FuncionarioPrefs::getFuncionarioId, p -> p));
 
-        for (FuncionarioBasicProjection f : funcionarios) {
+		// 4) resposta com duração resolvida
+		List<PublicFuncionarioServicoResponseDTO> result = new ArrayList<>();
 
-            Integer duracaoResolvida = resolveDuracaoMin(
-                    prefsMap.get(f.getId()),
-                    servicoId,
-                    servico.getDuracaoMin()
-            );
+		for (FuncionarioBasicProjection f : funcionarios) {
 
-            result.add(new PublicFuncionarioServicoResponseDTO(
-                    f.getId(),
-                    f.getNome(),
-                    servico.getValor(),
-                    duracaoResolvida
-            ));
-        }
+			Integer duracaoResolvida = resolveDuracaoMin(prefsMap.get(f.getId()), servicoId, servico.getDuracaoMin());
 
-        return result;
-    }
+			result.add(new PublicFuncionarioServicoResponseDTO(f.getId(), f.getNome(), servico.getValor(),
+					duracaoResolvida));
+		}
 
-    /**
-     * Resolve duração do serviço para o funcionário:
-     * - tenta ler do prefs_json no formato:
-     *   {
-     *     "servicos": {
-     *       "1": { "duracaoMin": 30 }
-     *     }
-     *   }
-     * - fallback para a duração padrão do serviço
-     *
-     * Defesa:
-     * - se JSON estiver inválido, retorna fallback
-     * - se duração estiver inválida (<1), retorna fallback
-     */
-    private Integer resolveDuracaoMin(FuncionarioPrefs prefs, Long servicoId, Integer fallbackDuracaoMin) {
+		return result;
+	}
 
-        if (prefs == null || prefs.getPrefsJson() == null || prefs.getPrefsJson().isBlank()) {
-            return fallbackDuracaoMin;
-        }
+	/**
+	 * Status do serviço no schema atual: - "ativo" / "inativo" (varchar)
+	 */
+	private boolean isServicoAtivo(String statusDb) {
+		if (statusDb == null)
+			return false;
+		return "ativo".equalsIgnoreCase(statusDb.trim());
+	}
 
-        try {
-            JsonNode root = objectMapper.readTree(prefs.getPrefsJson());
+	private Integer resolveDuracaoMin(FuncionarioPrefs prefs, Long servicoId, Integer fallbackDuracaoMin) {
 
-            JsonNode duracaoNode = root.path("servicos")
-                    .path(String.valueOf(servicoId))
-                    .path("duracaoMin");
+		if (prefs == null || prefs.getPrefsJson() == null || prefs.getPrefsJson().isBlank()) {
+			return fallbackDuracaoMin;
+		}
 
-            if (duracaoNode != null && duracaoNode.isInt()) {
-                int v = duracaoNode.asInt();
-                return v >= 1 ? v : fallbackDuracaoMin;
-            }
+		try {
+			JsonNode root = objectMapper.readTree(prefs.getPrefsJson());
 
-            return fallbackDuracaoMin;
-        } catch (Exception e) {
-            // Não derrubar catálogo público por prefs_json inválido
-            return fallbackDuracaoMin;
-        }
-    }
+			JsonNode duracaoNode = root.path("servicos").path(String.valueOf(servicoId)).path("duracaoMin");
+
+			if (duracaoNode != null && duracaoNode.isInt()) {
+				int v = duracaoNode.asInt();
+				return v >= 1 ? v : fallbackDuracaoMin;
+			}
+
+			return fallbackDuracaoMin;
+		} catch (Exception e) {
+			return fallbackDuracaoMin;
+		}
+	}
 }

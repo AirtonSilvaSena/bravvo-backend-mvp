@@ -9,8 +9,11 @@ import br.com.bravvo.api.enums.StatusServico;
 /**
  * Mapper responsável pela conversão entre: - DTOs de Serviço - Entidade Servico
  *
- * Segue o mesmo padrão do UserMapper: - métodos estáticos - sem estado - sem
- * lógica de negócio
+ * Observação importante (schema atual): - No BANCO, status é varchar(20) com
+ * valores minúsculos: "ativo" / "inativo" - Na ENTITY (alinhada ao BD), status
+ * é String - Nos DTOs, status permanece como enum StatusServico
+ *
+ * Portanto, este mapper converte: StatusServico <-> String (db)
  */
 public class ServicoMapper {
 
@@ -21,8 +24,9 @@ public class ServicoMapper {
 	/**
 	 * DTO (create) -> Entity
 	 *
-	 * Observações: - status é opcional no create; se vier nulo, assume ATIVO -
-	 * createdAt / updatedAt são tratados pelos callbacks JPA
+	 * Observações: - status é opcional no create; se vier null, assume ATIVO
+	 * ("ativo") - createdAt/updatedAt são gerenciados pelo banco (na entity estão
+	 * insertable/updatable=false)
 	 */
 	public static Servico toEntity(ServicoCreateRequestDTO dto) {
 		if (dto == null)
@@ -34,17 +38,17 @@ public class ServicoMapper {
 		servico.setDuracaoMin(dto.getDuracaoMin());
 		servico.setValor(dto.getValor());
 
-		// Se não vier status, assume ATIVO
-		servico.setStatus(dto.getStatus() != null ? dto.getStatus() : StatusServico.ATIVO);
+		// ✅ converte enum -> string do banco
+		servico.setStatus(toDbStatus(dto.getStatus()));
 
 		return servico;
 	}
 
 	/**
-	 * Atualiza uma Entity existente com dados do DTO (update).
+	 * Atualiza Entity a partir do DTO (update)
 	 *
-	 * Observações: - atualização completa do serviço - id, createdAt e updatedAt
-	 * NÃO são alterados aqui
+	 * Observações: - Mantém o padrão do seu projeto: update completo. - status no
+	 * DTO pode vir null; se vier null, mantemos o status atual (não sobrescreve).
 	 */
 	public static void updateEntity(Servico servico, ServicoUpdateRequestDTO dto) {
 		if (servico == null || dto == null)
@@ -54,13 +58,17 @@ public class ServicoMapper {
 		servico.setDescricao(dto.getDescricao());
 		servico.setDuracaoMin(dto.getDuracaoMin());
 		servico.setValor(dto.getValor());
-		servico.setStatus(dto.getStatus());
+
+		// ✅ se vier status no dto, converte e atualiza; se não, mantém o atual
+		if (dto.getStatus() != null) {
+			servico.setStatus(toDbStatus(dto.getStatus()));
+		}
 	}
 
 	/**
 	 * Entity -> DTO (response)
 	 *
-	 * Utilizado em: - listagem - detalhe - create/update/status
+	 * Observação: - converte string do banco -> enum
 	 */
 	public static ServicoResponseDTO toResponse(Servico servico) {
 		if (servico == null)
@@ -72,10 +80,48 @@ public class ServicoMapper {
 		dto.setDescricao(servico.getDescricao());
 		dto.setDuracaoMin(servico.getDuracaoMin());
 		dto.setValor(servico.getValor());
-		dto.setStatus(servico.getStatus());
+
+		// ✅ converte string do banco -> enum
+		dto.setStatus(fromDbStatus(servico.getStatus()));
+
 		dto.setCreatedAt(servico.getCreatedAt());
 		dto.setUpdatedAt(servico.getUpdatedAt());
 
 		return dto;
+	}
+
+	// ==========================================================
+	// Conversões StatusServico <-> String (DB)
+	// ==========================================================
+
+	/**
+	 * Converte o enum para o valor salvo no banco (minúsculo).
+	 */
+	private static String toDbStatus(StatusServico status) {
+		if (status == null)
+			return "ativo"; // default do BD
+
+		// Ajuste aqui conforme seu enum real
+		// Ex.: ATIVO/INATIVO
+		return switch (status) {
+		case ATIVO -> "ativo";
+		case INATIVO -> "inativo";
+		};
+	}
+
+	/**
+	 * Converte o valor do banco (String) para o enum do sistema. Se vier algo
+	 * inesperado, faz fallback para ATIVO.
+	 */
+	private static StatusServico fromDbStatus(String dbStatus) {
+		if (dbStatus == null || dbStatus.isBlank())
+			return StatusServico.ATIVO;
+
+		String s = dbStatus.trim().toLowerCase();
+		return switch (s) {
+		case "ativo" -> StatusServico.ATIVO;
+		case "inativo" -> StatusServico.INATIVO;
+		default -> StatusServico.ATIVO;
+		};
 	}
 }

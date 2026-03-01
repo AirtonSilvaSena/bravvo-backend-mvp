@@ -5,8 +5,21 @@ import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
 
+/**
+ * Entity Estabelecimentos - alinhada com o schema atual do banco.
+ *
+ * Tabela: estabelecimentos
+ *
+ * Regras do schema: - slug é UNIQUE (uk_estabelecimentos_slug) -
+ * status_assinatura possui CHECK: TRIAL | ATIVO | INADIMPLENTE | CANCELADO -
+ * created_at/updated_at possuem defaults no banco (current_timestamp / on
+ * update) - owner_user_id referencia users(id)
+ */
 @Entity
-@Table(name = "estabelecimentos")
+@Table(name = "estabelecimentos", uniqueConstraints = {
+		@UniqueConstraint(name = "uk_estabelecimentos_slug", columnNames = { "slug" }) }, indexes = {
+				@Index(name = "idx_estabelecimentos_status", columnList = "status_assinatura"),
+				@Index(name = "idx_estabelecimentos_owner", columnList = "owner_user_id") })
 public class Estabelecimentos {
 
 	@Id
@@ -15,30 +28,35 @@ public class Estabelecimentos {
 
 	@Column(name = "nome", nullable = false, length = 120)
 	private String nome;
-	
-	@Column(name = "telefone", nullable = true, length = 100)
+
+	/**
+	 * BD: varchar(20) DEFAULT NULL
+	 */
+	@Column(name = "telefone", length = 20)
 	private String telefone;
-	
-	@Column(name = "ramo_atuacao", length = 60)
+
+	/**
+	 * BD: varchar(60) NOT NULL
+	 */
+	@Column(name = "ramo_atuacao", nullable = false, length = 60)
 	private String ramoAtuacao;
 
-	@Column(name = "endereco", nullable = true, length = 255)
+	@Column(name = "endereco", length = 255)
 	private String endereco;
-	
-	@Column(name = "numero", nullable = true, length = 20)
+
+	@Column(name = "numero", length = 20)
 	private String numero;
-	
-	@Column(name = "bairro", nullable = true, length = 100)
+
+	@Column(name = "bairro", length = 100)
 	private String bairro;
-	
-	@Column(name = "estado", nullable = true, length = 100)
+
+	@Column(name = "estado", length = 100)
 	private String estado;
-	
-	@Column(name = "cidade", nullable = true, length = 100)
+
+	@Column(name = "cidade", length = 100)
 	private String cidade;
-	
-	
-	@Column(name = "slug", nullable = false, length = 60, unique = true)
+
+	@Column(name = "slug", nullable = false, length = 60)
 	private String slug;
 
 	@Enumerated(EnumType.STRING)
@@ -48,17 +66,26 @@ public class Estabelecimentos {
 	@Column(name = "trial_ends_at")
 	private LocalDateTime trialEndsAt;
 
-	// Dono do salão (admin)
+	/**
+	 * BD: owner_user_id bigint unsigned DEFAULT NULL FK:
+	 * fk_estabelecimentos_owner_user -> users(id)
+	 */
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "owner_user_id")
+	@JoinColumn(name = "owner_user_id", foreignKey = @ForeignKey(name = "fk_estabelecimentos_owner_user"))
 	private User ownerUser;
 
-	@Column(name = "created_at", insertable = false, updatable = false)
+	/**
+	 * BD controla via DEFAULT current_timestamp()
+	 */
+	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private LocalDateTime createdAt;
 
-	@Column(name = "updated_at", insertable = false, updatable = false)
+	/**
+	 * BD controla via DEFAULT current_timestamp() ON UPDATE current_timestamp()
+	 */
+	@Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
 	private LocalDateTime updatedAt;
-	
+
 	@Column(name = "logo_key", length = 255)
 	private String logoKey;
 
@@ -70,41 +97,9 @@ public class Estabelecimentos {
 
 	@Column(name = "logo_updated_at")
 	private LocalDateTime logoUpdatedAt;
-	
-	public String getLogoKey() {
-	    return logoKey;
-	}
 
-	public void setLogoKey(String logoKey) {
-	    this.logoKey = logoKey;
-	}
-
-	public String getLogoMimeType() {
-	    return logoMimeType;
-	}
-
-	public void setLogoMimeType(String logoMimeType) {
-	    this.logoMimeType = logoMimeType;
-	}
-
-	public Long getLogoSizeBytes() {
-	    return logoSizeBytes;
-	}
-
-	public void setLogoSizeBytes(Long logoSizeBytes) {
-	    this.logoSizeBytes = logoSizeBytes;
-	}
-
-	public LocalDateTime getLogoUpdatedAt() {
-	    return logoUpdatedAt;
-	}
-
-	public void setLogoUpdatedAt(LocalDateTime logoUpdatedAt) {
-	    this.logoUpdatedAt = logoUpdatedAt;
-	}
-	
-	
 	// getters/setters
+
 	public Long getId() {
 		return id;
 	}
@@ -116,61 +111,21 @@ public class Estabelecimentos {
 	public void setNome(String nome) {
 		this.nome = nome;
 	}
-	
-	public String getRamoAtuacao() {
-		return ramoAtuacao;
-	}
 
-	public void setRamoAtuacao(String ramoAtuacao) {
-		this.ramoAtuacao = ramoAtuacao;
-	}
-
-	public String getSlug() {
-		return slug;
-	}
-
-	public void setSlug(String slug) {
-		this.slug = slug;
-	}
-
-	public StatusAssinatura getStatusAssinatura() {
-		return statusAssinatura;
-	}
-
-	public void setStatusAssinatura(StatusAssinatura statusAssinatura) {
-		this.statusAssinatura = statusAssinatura;
-	}
-
-	public LocalDateTime getTrialEndsAt() {
-		return trialEndsAt;
-	}
-
-	public void setTrialEndsAt(LocalDateTime trialEndsAt) {
-		this.trialEndsAt = trialEndsAt;
-	}
-
-	public User getOwnerUser() {
-		return ownerUser;
-	}
-
-	public void setOwnerUser(User ownerUser) {
-		this.ownerUser = ownerUser;
-	}
-
-	public LocalDateTime getCreatedAt() {
-		return createdAt;
-	}
-
-	public LocalDateTime getUpdatedAt() {
-		return updatedAt;
-	}
-	
 	public String getTelefone() {
 		return telefone;
 	}
 
 	public void setTelefone(String telefone) {
 		this.telefone = telefone;
+	}
+
+	public String getRamoAtuacao() {
+		return ramoAtuacao;
+	}
+
+	public void setRamoAtuacao(String ramoAtuacao) {
+		this.ramoAtuacao = ramoAtuacao;
 	}
 
 	public String getEndereco() {
@@ -213,4 +168,75 @@ public class Estabelecimentos {
 		this.cidade = cidade;
 	}
 
+	public String getSlug() {
+		return slug;
+	}
+
+	public void setSlug(String slug) {
+		this.slug = slug;
+	}
+
+	public StatusAssinatura getStatusAssinatura() {
+		return statusAssinatura;
+	}
+
+	public void setStatusAssinatura(StatusAssinatura statusAssinatura) {
+		this.statusAssinatura = statusAssinatura;
+	}
+
+	public LocalDateTime getTrialEndsAt() {
+		return trialEndsAt;
+	}
+
+	public void setTrialEndsAt(LocalDateTime trialEndsAt) {
+		this.trialEndsAt = trialEndsAt;
+	}
+
+	public User getOwnerUser() {
+		return ownerUser;
+	}
+
+	public void setOwnerUser(User ownerUser) {
+		this.ownerUser = ownerUser;
+	}
+
+	public LocalDateTime getCreatedAt() {
+		return createdAt;
+	}
+
+	public LocalDateTime getUpdatedAt() {
+		return updatedAt;
+	}
+
+	public String getLogoKey() {
+		return logoKey;
+	}
+
+	public void setLogoKey(String logoKey) {
+		this.logoKey = logoKey;
+	}
+
+	public String getLogoMimeType() {
+		return logoMimeType;
+	}
+
+	public void setLogoMimeType(String logoMimeType) {
+		this.logoMimeType = logoMimeType;
+	}
+
+	public Long getLogoSizeBytes() {
+		return logoSizeBytes;
+	}
+
+	public void setLogoSizeBytes(Long logoSizeBytes) {
+		this.logoSizeBytes = logoSizeBytes;
+	}
+
+	public LocalDateTime getLogoUpdatedAt() {
+		return logoUpdatedAt;
+	}
+
+	public void setLogoUpdatedAt(LocalDateTime logoUpdatedAt) {
+		this.logoUpdatedAt = logoUpdatedAt;
+	}
 }

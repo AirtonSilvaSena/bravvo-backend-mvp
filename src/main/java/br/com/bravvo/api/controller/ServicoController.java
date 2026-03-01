@@ -5,7 +5,6 @@ import br.com.bravvo.api.dto.servico.ServicoCreateRequestDTO;
 import br.com.bravvo.api.dto.servico.ServicoResponseDTO;
 import br.com.bravvo.api.dto.servico.ServicoStatusUpdateRequestDTO;
 import br.com.bravvo.api.dto.servico.ServicoUpdateRequestDTO;
-import br.com.bravvo.api.enums.StatusServico;
 import br.com.bravvo.api.service.ServicoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,6 +24,10 @@ import java.util.Map;
  * IMPORTANTE:
  * - Todos os endpoints são restritos ao perfil ADMIN
  * - O formato das respostas segue EXATAMENTE o contrato esperado pelo frontend
+ *
+ * Multi-tenant:
+ * - O estabelecimentoId é inferido via JWT (TenantContext) DENTRO do Service
+ * - O controller não precisa receber estabelecimentoId como parâmetro
  */
 @RestController
 @RequestMapping("/api/servicos")
@@ -43,29 +46,31 @@ public class ServicoController {
     // =========================================================
 
     @Operation(
-        summary = "Listar serviços",
-        description = """
-            Retorna uma lista paginada de serviços.
+            summary = "Listar serviços",
+            description = """
+                Retorna uma lista paginada de serviços do estabelecimento (tenant) atual.
 
-            Query params:
-            - page (1-based)
-            - limit
-            - search (nome)
-            - status (ATIVO | INATIVO)
-            """
+                Query params:
+                - page (1-based)
+                - limit
+                - search (nome)
+                - status (opcional): "ativo" | "inativo"
+                
+                Observação:
+                - O filtro de tenant é aplicado no Service via TenantContext (JWT).
+                """
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Lista retornada com sucesso"),
-        @ApiResponse(responseCode = "403", description = "Acesso negado")
+            @ApiResponse(responseCode = "200", description = "Lista retornada com sucesso"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado")
     })
     @GetMapping
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int limit,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) StatusServico status
+            @RequestParam(required = false) String status // ✅ aqui é String agora
     ) {
-
         PagedResponseDTO<ServicoResponseDTO> paged =
                 servicoService.listPaged(page, limit, search, status);
 
@@ -88,13 +93,18 @@ public class ServicoController {
     // =========================================================
 
     @Operation(
-        summary = "Buscar serviço por ID",
-        description = "Retorna os dados de um serviço específico."
+            summary = "Buscar serviço por ID",
+            description = """
+                Retorna os dados de um serviço específico.
+                
+                Observação:
+                - O serviço precisa pertencer ao tenant atual (validação no Service).
+                """
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Serviço encontrado"),
-        @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
-        @ApiResponse(responseCode = "403", description = "Acesso negado")
+            @ApiResponse(responseCode = "200", description = "Serviço encontrado"),
+            @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado")
     })
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> getById(@PathVariable Long id) {
@@ -113,17 +123,22 @@ public class ServicoController {
     // =========================================================
 
     @Operation(
-        summary = "Criar serviço",
-        description = "Cria um novo serviço no catálogo."
+            summary = "Criar serviço",
+            description = """
+                Cria um novo serviço no catálogo do tenant atual.
+                
+                Regras:
+                - Nome não pode duplicar dentro do mesmo estabelecimento.
+                - status padrão: "ativo" (se não informado pelo mapper/DTO).
+                """
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Serviço criado com sucesso"),
-        @ApiResponse(responseCode = "400", description = "Dados inválidos"),
-        @ApiResponse(responseCode = "403", description = "Acesso negado")
+            @ApiResponse(responseCode = "200", description = "Serviço criado com sucesso"),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado")
     })
     @PostMapping
-    public ResponseEntity<Map<String, Object>> create(
-            @Valid @RequestBody ServicoCreateRequestDTO dto) {
+    public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody ServicoCreateRequestDTO dto) {
 
         ServicoResponseDTO servico = servicoService.create(dto);
 
@@ -139,14 +154,20 @@ public class ServicoController {
     // =========================================================
 
     @Operation(
-        summary = "Atualizar serviço",
-        description = "Atualiza todos os dados de um serviço existente."
+            summary = "Atualizar serviço",
+            description = """
+                Atualiza todos os dados de um serviço existente.
+                
+                Observação:
+                - O serviço precisa pertencer ao tenant atual (validação no Service).
+                - Nome não pode duplicar dentro do mesmo estabelecimento.
+                """
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Serviço atualizado com sucesso"),
-        @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
-        @ApiResponse(responseCode = "400", description = "Dados inválidos"),
-        @ApiResponse(responseCode = "403", description = "Acesso negado")
+            @ApiResponse(responseCode = "200", description = "Serviço atualizado com sucesso"),
+            @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado")
     })
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> update(
@@ -167,13 +188,21 @@ public class ServicoController {
     // =========================================================
 
     @Operation(
-        summary = "Atualizar status do serviço",
-        description = "Atualiza somente o status (ATIVO / INATIVO) do serviço."
+            summary = "Atualizar status do serviço",
+            description = """
+                Atualiza somente o status do serviço.
+
+                Body:
+                - status: ATIVO | INATIVO
+                
+                Observação:
+                - O DTO usa enum, mas o Service converte e persiste como "ativo"/"inativo".
+                """
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Status atualizado com sucesso"),
-        @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
-        @ApiResponse(responseCode = "403", description = "Acesso negado")
+            @ApiResponse(responseCode = "200", description = "Status atualizado com sucesso"),
+            @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado")
     })
     @PutMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> updateStatus(
@@ -194,13 +223,18 @@ public class ServicoController {
     // =========================================================
 
     @Operation(
-        summary = "Remover serviço",
-        description = "Remove um serviço do catálogo."
+            summary = "Remover serviço",
+            description = """
+                Remove um serviço do catálogo.
+                
+                Observação:
+                - O serviço precisa pertencer ao tenant atual (validação no Service).
+                """
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Serviço removido com sucesso"),
-        @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
-        @ApiResponse(responseCode = "403", description = "Acesso negado")
+            @ApiResponse(responseCode = "200", description = "Serviço removido com sucesso"),
+            @ApiResponse(responseCode = "404", description = "Serviço não encontrado"),
+            @ApiResponse(responseCode = "403", description = "Acesso negado")
     })
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, Object>> delete(@PathVariable Long id) {
