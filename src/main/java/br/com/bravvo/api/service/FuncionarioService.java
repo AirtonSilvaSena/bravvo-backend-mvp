@@ -235,7 +235,7 @@ public class FuncionarioService {
         }
 
         EstabelecimentoUser vinculo = estabelecimentoUserRepository
-                .findByEstabelecimentoIdAndUser_Id(estabelecimentoId, userId)
+                .findByEstabelecimentoIdAndUserId(estabelecimentoId, userId)
                 .orElseThrow(() -> new ForbiddenException("Vínculo do usuário com o estabelecimento não encontrado."));
 
         if (Boolean.FALSE.equals(vinculo.getAtivo())) {
