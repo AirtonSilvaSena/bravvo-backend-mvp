@@ -97,6 +97,7 @@ public class EstabelecimentoOnboardingService {
         }
 
         pre.setNome(dto.getNome().trim());
+        pre.setNomeOwner(dto.getNomeOwner().trim());
         pre.setRamoAtuacao(dto.getRamoAtuacao().trim());
         pre.setEmail(email);
         pre.setTelefone(telefoneNorm);
@@ -187,7 +188,7 @@ public class EstabelecimentoOnboardingService {
         if (admin == null) {
             // cria novo usuário
             admin = new User();
-            admin.setNome(pre.getNome());
+            admin.setNome(pre.getNomeOwner());
             admin.setEmail(email);
             admin.setSenhaHash(pre.getSenhaHash()); // já está hash no pré-cadastro
             admin.setAtivo(true);

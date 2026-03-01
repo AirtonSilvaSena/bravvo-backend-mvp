@@ -15,6 +15,9 @@ public class EstabelecimentosPreCadastro {
 	@Column(name = "nome", nullable = false, length = 120)
 	private String nome;
 	
+	@Column(name = "nome_owner", nullable = false, length = 150)
+	private String nomeOwner;
+	
 	@Column(name = "ramo_atuacao", length = 60)
 	private String ramoAtuacao;
 
@@ -53,6 +56,14 @@ public class EstabelecimentosPreCadastro {
 
 	public void setNome(String nome) {
 		this.nome = nome;
+	}
+	
+	public String getNomeOwner() {
+		return nomeOwner;
+	}
+
+	public void setNomeOwner(String nomeOwner) {
+		this.nomeOwner = nomeOwner;
 	}
 	
 	public String getRamoAtuacao() {

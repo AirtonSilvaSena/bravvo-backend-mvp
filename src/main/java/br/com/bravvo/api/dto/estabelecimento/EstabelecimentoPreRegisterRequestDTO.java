@@ -10,6 +10,11 @@ public class EstabelecimentoPreRegisterRequestDTO {
 	@Size(max = 120)
 	private String nome;
 	
+	
+	@NotBlank
+	@Size(max = 150)
+	private String nomeOwner;
+	
 	@NotBlank
 	@Size(max = 60)
 	private String ramoAtuacao;
@@ -36,6 +41,14 @@ public class EstabelecimentoPreRegisterRequestDTO {
 
 	public void setNome(String nome) {
 		this.nome = nome;
+	}
+	
+	public String getNomeOwner() {
+		return nomeOwner;
+	}
+
+	public void setNomeOwner(String nomeOwner) {
+		this.nomeOwner = nomeOwner;
 	}
 	
 	public String getRamoAtuacao() {
