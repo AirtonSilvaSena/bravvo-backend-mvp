@@ -58,6 +58,20 @@ public class Estabelecimentos {
 
 	@Column(name = "slug", nullable = false, length = 60)
 	private String slug;
+	
+	/**
+	 * Texto institucional público do estabelecimento.
+	 * BD: TEXT NULL
+	 */
+	@Column(name = "sobre_nos", columnDefinition = "TEXT")
+	private String sobreNos;
+
+	/**
+	 * URL pública do Instagram.
+	 * BD: varchar(255) NULL
+	 */
+	@Column(name = "instagram_url", length = 255)
+	private String instagramUrl;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "status_assinatura", nullable = false, length = 20)
@@ -238,5 +252,21 @@ public class Estabelecimentos {
 
 	public void setLogoUpdatedAt(LocalDateTime logoUpdatedAt) {
 		this.logoUpdatedAt = logoUpdatedAt;
+	}
+	
+	public String getSobreNos() {
+		return sobreNos;
+	}
+
+	public void setSobreNos(String sobreNos) {
+		this.sobreNos = sobreNos;
+	}
+
+	public String getInstagramUrl() {
+		return instagramUrl;
+	}
+
+	public void setInstagramUrl(String instagramUrl) {
+		this.instagramUrl = instagramUrl;
 	}
 }

@@ -29,6 +29,12 @@ public class EstabelecimentoMeUpdateRequestDTO {
 
 	@Size(max = 100, message = "Cidade deve ter no máximo 100 caracteres.")
 	private String cidade;
+	
+	@Size(max = 5000, message = "Sobre nós deve ter no máximo 5000 caracteres.")
+	private String sobreNos;
+
+	@Size(max = 255, message = "Instagram deve ter no máximo 255 caracteres.")
+	private String instagramUrl;
 
 	public String getNome() {
 		return nome;
@@ -92,5 +98,21 @@ public class EstabelecimentoMeUpdateRequestDTO {
 
 	public void setCidade(String cidade) {
 		this.cidade = cidade;
+	}
+	
+	public String getSobreNos() {
+		return sobreNos;
+	}
+
+	public String getInstagramUrl() {
+		return instagramUrl;
+	}
+	
+	public void setSobreNos(String sobreNos) {
+		this.sobreNos = sobreNos;
+	}
+
+	public void setInstagramUrl(String instagramUrl) {
+		this.instagramUrl = instagramUrl;
 	}
 }

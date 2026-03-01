@@ -19,27 +19,48 @@ public class EstabelecimentoMeResponseDTO {
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 	private String logoUrl;
+	private String sobreNos;
+	private String instagramUrl;
 
 	public EstabelecimentoMeResponseDTO() {
 	}
 
-	public EstabelecimentoMeResponseDTO(Long id, String nome, String telefone, String ramoAtuacao, String endereco,
-			String numero, String bairro, String estado, String cidade, String slug, String statusAssinatura,
-			LocalDateTime trialEndsAt, LocalDateTime createdAt, LocalDateTime updatedAt) {
-		this.id = id;
-		this.nome = nome;
-		this.telefone = telefone;
-		this.ramoAtuacao = ramoAtuacao;
-		this.endereco = endereco;
-		this.numero = numero;
-		this.bairro = bairro;
-		this.estado = estado;
-		this.cidade = cidade;
-		this.slug = slug;
-		this.statusAssinatura = statusAssinatura;
-		this.trialEndsAt = trialEndsAt;
-		this.createdAt = createdAt;
-		this.updatedAt = updatedAt;
+	public EstabelecimentoMeResponseDTO(
+	        Long id,
+	        String nome,
+	        String telefone,
+	        String ramoAtuacao,
+	        String endereco,
+	        String numero,
+	        String bairro,
+	        String estado,
+	        String cidade,
+	        String slug,
+	        String statusAssinatura,
+	        LocalDateTime trialEndsAt,
+	        LocalDateTime createdAt,
+	        LocalDateTime updatedAt,
+	        String logoUrl,
+	        String sobreNos,
+	        String instagramUrl
+	) {
+	    this.id = id;
+	    this.nome = nome;
+	    this.telefone = telefone;
+	    this.ramoAtuacao = ramoAtuacao;
+	    this.endereco = endereco;
+	    this.numero = numero;
+	    this.bairro = bairro;
+	    this.estado = estado;
+	    this.cidade = cidade;
+	    this.slug = slug;
+	    this.statusAssinatura = statusAssinatura;
+	    this.trialEndsAt = trialEndsAt;
+	    this.createdAt = createdAt;
+	    this.updatedAt = updatedAt;
+	    this.logoUrl = logoUrl;
+	    this.sobreNos = sobreNos;
+	    this.instagramUrl = instagramUrl;
 	}
 
 	public Long getId() {
@@ -160,5 +181,21 @@ public class EstabelecimentoMeResponseDTO {
 
 	public void setUpdatedAt(LocalDateTime updatedAt) {
 		this.updatedAt = updatedAt;
+	}
+	
+	public String getSobreNos() {
+		return sobreNos;
+	}
+
+	public String getInstagramUrl() {
+		return instagramUrl;
+	}
+	
+	public void setSobreNos(String sobreNos) {
+		this.sobreNos = sobreNos;
+	}
+
+	public void setInstagramUrl(String instagramUrl) {
+		this.instagramUrl = instagramUrl;
 	}
 }

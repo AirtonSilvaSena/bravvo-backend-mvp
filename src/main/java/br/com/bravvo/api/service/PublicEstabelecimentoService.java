@@ -76,10 +76,12 @@ public class PublicEstabelecimentoService {
                 estab.getNumero(),
                 estab.getBairro(),
                 estab.getCidade(),
-                estab.getEstado(),
+                estab.getEstado(),               
                 estab.getStatusAssinatura() != null ? estab.getStatusAssinatura().name() : null,
                 estab.getTrialEndsAt(),
-                logoUrl
+                logoUrl,
+                estab.getSobreNos(),
+                estab.getInstagramUrl()
         );
     }
 

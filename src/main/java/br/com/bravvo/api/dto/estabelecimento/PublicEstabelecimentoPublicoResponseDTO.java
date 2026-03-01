@@ -24,13 +24,16 @@ public class PublicEstabelecimentoPublicoResponseDTO {
 	private LocalDateTime trialEndsAt;
 
 	private String logoUrl;
+	
+	private String sobreNos;
+	private String instagramUrl;
 
 	public PublicEstabelecimentoPublicoResponseDTO() {
 	}
 
 	public PublicEstabelecimentoPublicoResponseDTO(String slug, String nome, String telefone, String ramoAtuacao,
 			String endereco, String numero, String bairro, String cidade, String estado, String statusAssinatura,
-			LocalDateTime trialEndsAt, String logoUrl) {
+			LocalDateTime trialEndsAt, String logoUrl,  String sobreNos, String instagramUrl) {
 		this.slug = slug;
 		this.nome = nome;
 		this.telefone = telefone;
@@ -43,6 +46,8 @@ public class PublicEstabelecimentoPublicoResponseDTO {
 		this.statusAssinatura = statusAssinatura;
 		this.trialEndsAt = trialEndsAt;
 		this.logoUrl = logoUrl;
+		this.sobreNos = sobreNos;
+		this.instagramUrl = instagramUrl;
 	}
 
 	public String getSlug() {
@@ -139,5 +144,21 @@ public class PublicEstabelecimentoPublicoResponseDTO {
 
 	public void setLogoUrl(String logoUrl) {
 		this.logoUrl = logoUrl;
+	}
+	
+	public String getSobreNos() {
+		return sobreNos;
+	}
+
+	public String getInstagramUrl() {
+		return instagramUrl;
+	}
+	
+	public void setSobreNos(String sobreNos) {
+		this.sobreNos = sobreNos;
+	}
+
+	public void setInstagramUrl(String instagramUrl) {
+		this.instagramUrl = instagramUrl;
 	}
 }
