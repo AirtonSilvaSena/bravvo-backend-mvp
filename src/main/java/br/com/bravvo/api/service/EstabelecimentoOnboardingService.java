@@ -56,8 +56,7 @@ public class EstabelecimentoOnboardingService {
     /**
      * MULTI-TENANT (identidade por estabelecimento):
      * - No pré-cadastro, o pivot é o SLUG do estabelecimento.
-     * - Mesmo e-mail/telefone pode existir em estabelecimentos diferentes.
-     * - Aqui não validamos duplicidade global em users.
+     * - O objetivo é confirmar e-mail para criar um novo estabelecimento.
      */
     @Transactional
     protected PreRegisterResult preRegisterTransactional(EstabelecimentoPreRegisterRequestDTO dto) {
@@ -114,9 +113,9 @@ public class EstabelecimentoOnboardingService {
     /**
      * Confirma e-mail e cria:
      * 1) Estabelecimento (tenant)
-     * 2) User (global)
+     * 2) User (global) -> REUSA se já existir por e-mail (evita conflito UNIQUE)
      * 3) Vínculo estabelecimento_users (ADMIN)
-     * 4) owner_user_id do estabelecimento
+     * 4) owner_user do estabelecimento
      */
     @Transactional
     public void confirmEmail(EstabelecimentoConfirmEmailRequestDTO dto) {
@@ -179,17 +178,28 @@ public class EstabelecimentoOnboardingService {
 
         Long estId = estabelecimento.getId();
 
-        // 2) Cria User (GLOBAL)
-        // Estratégia MVP: user é global e pode repetir email em outros tenants.
-        // Se você quiser impedir email global duplicado, use existsByEmail(...) aqui.
-        User admin = new User();
-        admin.setNome(pre.getNome());
-        admin.setEmail(email);
-        // admin.setTelefone(pre.getTelefone());
-        admin.setSenhaHash(pre.getSenhaHash());
-        admin.setAtivo(true);
-        admin.setEmailVerificado(true);
-        userRepository.save(admin);
+        // 2) User (GLOBAL) - REUSA se já existir por e-mail
+        // Observação:
+        // - Isso elimina o 409 de UNIQUE(email).
+        // - Se já existir, NÃO trocamos senha automaticamente (evita “sequestro” de conta).
+        User admin = userRepository.findByEmailIgnoreCase(email).orElse(null);
+
+        if (admin == null) {
+            // cria novo usuário
+            admin = new User();
+            admin.setNome(pre.getNome());
+            admin.setEmail(email);
+            admin.setSenhaHash(pre.getSenhaHash()); // já está hash no pré-cadastro
+            admin.setAtivo(true);
+            admin.setEmailVerificado(true);
+            admin = userRepository.save(admin);
+        } else {
+            // validações mínimas
+            if (!Boolean.TRUE.equals(admin.getAtivo())) {
+                throw new BusinessException("Este e-mail está vinculado a um usuário inativo.");
+            }
+
+        }
 
         // 3) Cria vínculo ADMIN no tenant
         // Aqui é onde validamos duplicidade POR ESTABELECIMENTO.
@@ -204,7 +214,7 @@ public class EstabelecimentoOnboardingService {
         vinculo.setAtivo(true);
         estabelecimentoUserRepository.save(vinculo);
 
-        // 4) Define owner do estabelecimento
+        // 4) Define owner do estabelecimento (admin global)
         estabelecimento.setOwnerUser(admin);
         salaoRepository.save(estabelecimento);
 

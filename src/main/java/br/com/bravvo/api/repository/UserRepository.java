@@ -64,5 +64,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
             Pageable pageable
     );
     
-   
+    /**
+     * Busca usuário por e-mail ignorando case.
+     *
+     * Usado no onboarding multi-tenant para:
+     * - Reaproveitar usuário existente
+     * - Evitar violação de UNIQUE(email)
+     */
+    Optional<User> findByEmailIgnoreCase(String email);
+
+    /**
+     * Verifica se já existe usuário com esse e-mail (case-insensitive).
+     */
+    boolean existsByEmailIgnoreCase(String email);
+     
 }
