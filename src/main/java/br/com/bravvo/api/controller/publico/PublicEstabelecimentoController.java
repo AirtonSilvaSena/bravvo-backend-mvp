@@ -1,5 +1,6 @@
 package br.com.bravvo.api.controller.publico;
 
+import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoPublicoResponseDTO;
 import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoResolveResponseDTO;
 import br.com.bravvo.api.service.PublicEstabelecimentoService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +34,23 @@ public class PublicEstabelecimentoController {
     })
     public ResponseEntity<Map<String, Object>> resolveBySlug(@PathVariable String slug) {
         PublicEstabelecimentoResolveResponseDTO dto = publicEstabelecimentoService.resolveBySlug(slug);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", dto
+        ));
+    }
+
+    @GetMapping("/{slug}/publico")
+    @Operation(
+            summary = "Obter informações públicas do estabelecimento por slug",
+            description = "Retorna dados públicos mais completos do estabelecimento (ex.: para página pública de agendamento)."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Estabelecimento encontrado"),
+            @ApiResponse(responseCode = "404", description = "Estabelecimento não encontrado")
+    })
+    public ResponseEntity<Map<String, Object>> getPublicoBySlug(@PathVariable String slug) {
+        PublicEstabelecimentoPublicoResponseDTO dto = publicEstabelecimentoService.getPublicoBySlug(slug);
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "data", dto
