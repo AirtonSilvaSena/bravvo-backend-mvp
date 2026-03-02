@@ -29,15 +29,21 @@ public interface EstabelecimentoRepository extends JpaRepository<Estabelecimento
     @Query("select e.id from Estabelecimentos e where e.slug = :slug")
     Optional<Long> findIdBySlug(@Param("slug") String slug);
     
+    /**
+     * Lista estabelecimentos associados ao user, considerando apenas vínculo ativo em estabelecimento_users.
+     *
+     * IMPORTANTE:
+     * - Estabelecimentos NÃO possui coluna/atributo "ativo" no MVP.
+     * - Quem controla ativo/inativo é o vínculo EstabelecimentoUser (estabelecimento_users.ativo).
+     */
     @Query("""
-    	    select e
-    	    from Estabelecimentos e
-    	    join EstabelecimentoUser eu on eu.estabelecimentoId = e.id
-    	    where eu.userId = :userId
-    	      and eu.ativo = true
-    	      and e.ativo = true
-    	""")
-    	List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
+        select e
+        from Estabelecimentos e
+        join EstabelecimentoUser eu on eu.estabelecimentoId = e.id
+        where eu.userId = :userId
+          and eu.ativo = true
+    """)
+    List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
     
     /**
      * Lista estabelecimentos ativos (ou todos, conforme você decidir) associados ao e-mail do usuário,
