@@ -242,10 +242,6 @@ public class FuncionarioService {
             throw new ForbiddenException("Usuário sem permissão (vínculo inativo).");
         }
 
-        if (vinculo.getPerfil() != PerfilUser.FUNCIONARIO) {
-            throw new ForbiddenException("Acesso permitido apenas para funcionários.");
-        }
-
         return user;
     }
 
