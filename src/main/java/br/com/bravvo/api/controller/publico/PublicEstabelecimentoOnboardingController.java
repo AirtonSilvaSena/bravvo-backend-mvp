@@ -1,4 +1,4 @@
-package br.com.bravvo.api.controller;
+package br.com.bravvo.api.controller.publico;
 
 import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoConfirmEmailRequestDTO;
 import br.com.bravvo.api.dto.estabelecimento.EstabelecimentoConfirmEmailResponseDTO;

@@ -54,18 +54,17 @@ public interface FuncionarioServicoRepository extends JpaRepository<FuncionarioS
     // =========================================================
 
     /**
-     * Lista funcionários (id + nome) que executam um serviço específico
+     * Lista usuários (id + nome) que executam um serviço específico
      * NO CONTEXTO DO ESTABELECIMENTO (multi-tenant).
      *
      * Regras:
      * - existe vínculo em funcionario_servicos (fs)
      * - usuário (u) está ativo
      * - vínculo do usuário com o estabelecimento (estabelecimento_users) está ativo
-     * - perfil do vínculo deve ser FUNCIONARIO (ou o PerfilUser passado)
      *
      * Observação:
-     * - perfil NÃO é mais lido de User, e sim de estabelecimento_users.
-     * - por isso, a query faz join manual com EstabelecimentoUser (eu).
+     * - Não filtra mais por perfil (ADMIN/FUNCIONARIO/CLIENTE).
+     * - Se futuramente isso gerar efeito colateral (ex.: ADMIN aparecendo), aí sim reintroduzimos filtro.
      */
     @Query("""
             select u.id as id, u.nome as nome
@@ -74,14 +73,12 @@ public interface FuncionarioServicoRepository extends JpaRepository<FuncionarioS
               and eu.userId = u.id
               and eu.estabelecimentoId = :estabelecimentoId
               and fs.id.servicoId = :servicoId
-              and eu.perfil = :perfil
               and eu.ativo = true
               and u.ativo = true
            """)
-    List<FuncionarioBasicProjection> findFuncionariosAtivosByServicoId(
+    List<FuncionarioBasicProjection> findUsuariosAtivosByServicoId(
             @Param("estabelecimentoId") Long estabelecimentoId,
-            @Param("servicoId") Long servicoId,
-            @Param("perfil") PerfilUser perfil
+            @Param("servicoId") Long servicoId
     );
 
     /**

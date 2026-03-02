@@ -77,7 +77,7 @@ public class PublicCatalogService {
 
 		// 2) busca funcionários aptos (JOIN vínculo + user ativo + perfil)
 		List<FuncionarioBasicProjection> funcionarios = funcionarioServicoRepository
-				.findFuncionariosAtivosByServicoId(estabelecimentoId, servicoId, PerfilUser.FUNCIONARIO);
+				.findUsuariosAtivosByServicoId(estabelecimentoId, servicoId);
 
 		if (funcionarios.isEmpty()) {
 			return Collections.emptyList();

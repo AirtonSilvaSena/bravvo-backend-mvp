@@ -1,4 +1,4 @@
-package br.com.bravvo.api.controller;
+package br.com.bravvo.api.controller.publico;
 
 import br.com.bravvo.api.dto.agendamento.AgendamentoItemResponseDTO;
 import br.com.bravvo.api.dto.agendamento.PublicAgendamentoCreateRequestDTO;
