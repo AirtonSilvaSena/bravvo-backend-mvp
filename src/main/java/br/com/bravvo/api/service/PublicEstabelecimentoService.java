@@ -1,26 +1,34 @@
 package br.com.bravvo.api.service;
 
+import br.com.bravvo.api.dto.agendamento.PublicEstabelecimentoEmailResponseDTO;
 import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoPublicoResponseDTO;
 import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoResolveResponseDTO;
 import br.com.bravvo.api.entity.Estabelecimentos;
+import br.com.bravvo.api.entity.User;
+import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.repository.EstabelecimentoRepository;
+import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.service.storage.EstabelecimentoLogoStorageService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneOffset;
+import java.util.List;
 
 @Service
 public class PublicEstabelecimentoService {
-
+	
+	private final UserRepository userRepository;
     private final EstabelecimentoRepository estabelecimentoRepository;
     private final EstabelecimentoLogoStorageService logoStorageService;
 
     public PublicEstabelecimentoService(EstabelecimentoRepository estabelecimentoRepository,
-                                        EstabelecimentoLogoStorageService logoStorageService) {
+                                        EstabelecimentoLogoStorageService logoStorageService, UserRepository userRepository) {
         this.estabelecimentoRepository = estabelecimentoRepository;
         this.logoStorageService = logoStorageService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -85,7 +93,41 @@ public class PublicEstabelecimentoService {
                 estab.getCep()
         );
     }
+    
+    /**
+     * Retorna os estabelecimentos (nome + slug) vinculados a um e-mail.
+     *
+     * Regra:
+     * - Busca usuário global por e-mail
+     * - Retorna todos estabelecimentos ativos vinculados a ele
+     */
+    @Transactional(readOnly = true)
+    public List<PublicEstabelecimentoEmailResponseDTO> getSlugsByEmail(String email) {
 
+        if (email == null || email.isBlank()) {
+            throw new BusinessException("Informe o e-mail.");
+        }
+
+        String emailNormalizado = email.trim().toLowerCase();
+
+        User user = userRepository.findByEmailIgnoreCase(emailNormalizado)
+                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
+
+        List<Estabelecimentos> estabelecimentos =
+                estabelecimentoRepository.findAllAtivosByUserId(user.getId());
+
+        if (estabelecimentos.isEmpty()) {
+            throw new NotFoundException("Nenhum estabelecimento vinculado a este usuário.");
+        }
+
+        return estabelecimentos.stream()
+                .map(estab -> new PublicEstabelecimentoEmailResponseDTO(
+                        estab.getNome(),
+                        estab.getSlug()
+                ))
+                .toList();
+    }
+    
     public ResponseEntity<byte[]> getLogoBySlug(String slug) {
         Estabelecimentos estab = estabelecimentoRepository.findBySlug(slug)
                 .orElseThrow(() -> new NotFoundException("Estabelecimento não encontrado"));

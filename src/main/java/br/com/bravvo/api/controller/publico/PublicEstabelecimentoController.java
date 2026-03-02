@@ -69,4 +69,23 @@ public class PublicEstabelecimentoController {
     public ResponseEntity<byte[]> getLogoBySlug(@PathVariable String slug) {
         return publicEstabelecimentoService.getLogoBySlug(slug);
     }
+    
+    @GetMapping("/email/{email}")
+    @Operation(
+            summary = "Listar estabelecimentos vinculados a um e-mail",
+            description = "Retorna nome e slug dos estabelecimentos vinculados ao e-mail informado (fluxo pré-login multi-tenant)."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Estabelecimentos encontrados"),
+            @ApiResponse(responseCode = "404", description = "Usuário ou estabelecimentos não encontrados")
+    })
+    public ResponseEntity<Map<String, Object>> getEstabelecimentosByEmail(@PathVariable String email) {
+
+        var lista = publicEstabelecimentoService.getSlugsByEmail(email);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", lista
+        ));
+    }
 }
