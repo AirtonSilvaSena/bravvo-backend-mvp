@@ -260,31 +260,30 @@ public class ServicoService {
 		};
 	}
 	
-	/**
-	 * Habilita um serviço recém-criado para todos os usuários ativos do estabelecimento (tenant-safe).
-	 *
-	 * ATENÇÃO: Isso cria vínculo em funcionario_servicos para QUALQUER perfil do tenant.
-	 * Se no futuro isso causar efeitos colaterais, troque para filtrar apenas FUNCIONARIO.
-	 */
 	private void habilitarServicoParaTodosUsuarios(Long estabelecimentoId, Long servicoId) {
 
 	    List<Long> userIds = estabelecimentoUserRepository
 	            .findActiveUserIdsByEstabelecimentoId(estabelecimentoId);
 
-	    if (userIds == null || userIds.isEmpty()) {
-	        return;
-	    }
+	    if (userIds == null || userIds.isEmpty()) return;
+
+	    // Busca quem já está vinculado em 1 query
+	    var jaVinculados = funcionarioServicoRepository.findFuncionarioIdsJaVinculados(servicoId, userIds);
+	    var jaVinculadosSet = new java.util.HashSet<>(jaVinculados);
 
 	    List<FuncionarioServico> vinculos = new ArrayList<>();
 
 	    for (Long userId : userIds) {
 	        if (userId == null) continue;
+	        if (jaVinculadosSet.contains(userId)) continue;
 
 	        FuncionarioServico fs = new FuncionarioServico();
 	        fs.setId(new FuncionarioServicoId(userId, servicoId));
 	        vinculos.add(fs);
 	    }
 
-	    funcionarioServicoRepository.saveAll(vinculos);
+	    if (!vinculos.isEmpty()) {
+	        funcionarioServicoRepository.saveAll(vinculos);
+	    }
 	}
 }

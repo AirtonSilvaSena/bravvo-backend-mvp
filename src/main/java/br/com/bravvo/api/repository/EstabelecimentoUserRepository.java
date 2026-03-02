@@ -1,6 +1,7 @@
 package br.com.bravvo.api.repository;
 
 import br.com.bravvo.api.entity.EstabelecimentoUser;
+import br.com.bravvo.api.entity.Estabelecimentos;
 import br.com.bravvo.api.entity.User;
 import br.com.bravvo.api.enums.PerfilUser;
 import org.springframework.data.domain.Page;
@@ -83,12 +84,13 @@ public interface EstabelecimentoUserRepository extends JpaRepository<Estabelecim
 			Pageable pageable);
 
 	@Query("""
-	        select eu.userId
-	        from EstabelecimentoUser eu
-	        where eu.estabelecimentoId = :estabelecimentoId
-	          and eu.ativo = true
-	    """)
-	    List<Long> findActiveUserIdsByEstabelecimentoId(
-	            @Param("estabelecimentoId") Long estabelecimentoId
-	    );
+		    select e
+		    from Estabelecimentos e
+		    join EstabelecimentoUser eu on eu.estabelecimentoId = e.id
+		    where eu.userId = :userId
+		      and eu.ativo = true
+		""")
+		List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
+	
+	List<Long> findActiveUserIdsByEstabelecimentoId(Long estabelecimentoId);
 }

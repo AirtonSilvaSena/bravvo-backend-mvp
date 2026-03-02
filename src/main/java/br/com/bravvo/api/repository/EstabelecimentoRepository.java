@@ -38,4 +38,34 @@ public interface EstabelecimentoRepository extends JpaRepository<Estabelecimento
     	      and e.ativo = true
     	""")
     	List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
+    
+    /**
+     * Lista estabelecimentos ativos (ou todos, conforme você decidir) associados ao e-mail do usuário,
+     * usando o vínculo estabelecimento_users (multi-tenant).
+     *
+     * Observação:
+     * - Não usa users.estabelecimento_id (porque já foi refatorado para vínculo).
+     * - Faz match case-insensitive no e-mail.
+     */
+    @Query("""
+        select distinct e
+        from Estabelecimentos e
+        join EstabelecimentoUser eu on eu.estabelecimentoId = e.id
+        join User u on u.id = eu.userId
+        where lower(u.email) = lower(:email)
+          and eu.ativo = true
+    """)
+    List<Estabelecimentos> findAllByUserEmailViaLink(@Param("email") String email);
+    
+    /**
+     * Retorna IDs de usuários que possuem vínculo ATIVO com o estabelecimento.
+     * (Sem filtrar perfil — admin também entra.)
+     */
+    @Query("""
+        select eu.userId
+        from EstabelecimentoUser eu
+        where eu.estabelecimentoId = :estabelecimentoId
+          and eu.ativo = true
+    """)
+    List<Long> findActiveUserIdsByEstabelecimentoId(@Param("estabelecimentoId") Long estabelecimentoId);
 }

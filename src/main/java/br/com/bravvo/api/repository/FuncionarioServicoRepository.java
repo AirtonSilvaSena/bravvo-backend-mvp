@@ -140,4 +140,16 @@ public interface FuncionarioServicoRepository extends JpaRepository<FuncionarioS
             @Param("estabelecimentoId") Long estabelecimentoId,
             @Param("funcionarioId") Long funcionarioId
     );
+    
+    @Query("""
+    	    select fs.id.funcionarioId
+    	    from FuncionarioServico fs
+    	    where fs.id.servicoId = :servicoId
+    	      and fs.id.funcionarioId in :funcionarioIds
+    	""")
+    	List<Long> findFuncionarioIdsJaVinculados(
+    	        @Param("servicoId") Long servicoId,
+    	        @Param("funcionarioIds") List<Long> funcionarioIds
+    	);
+
 }

@@ -1,6 +1,6 @@
 package br.com.bravvo.api.service;
 
-import br.com.bravvo.api.dto.agendamento.PublicEstabelecimentoEmailResponseDTO;
+import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoEmailResponseDTO;
 import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoPublicoResponseDTO;
 import br.com.bravvo.api.dto.estabelecimento.PublicEstabelecimentoResolveResponseDTO;
 import br.com.bravvo.api.entity.Estabelecimentos;
@@ -94,37 +94,20 @@ public class PublicEstabelecimentoService {
         );
     }
     
-    /**
-     * Retorna os estabelecimentos (nome + slug) vinculados a um e-mail.
-     *
-     * Regra:
-     * - Busca usuário global por e-mail
-     * - Retorna todos estabelecimentos ativos vinculados a ele
-     */
-    @Transactional(readOnly = true)
     public List<PublicEstabelecimentoEmailResponseDTO> getSlugsByEmail(String email) {
 
         if (email == null || email.isBlank()) {
-            throw new BusinessException("Informe o e-mail.");
+            throw new NotFoundException("E-mail não informado.");
         }
 
-        String emailNormalizado = email.trim().toLowerCase();
+        List<Estabelecimentos> estabs = estabelecimentoRepository.findAllByUserEmailViaLink(email.trim());
 
-        User user = userRepository.findByEmailIgnoreCase(emailNormalizado)
-                .orElseThrow(() -> new NotFoundException("Usuário não encontrado."));
-
-        List<Estabelecimentos> estabelecimentos =
-                estabelecimentoRepository.findAllAtivosByUserId(user.getId());
-
-        if (estabelecimentos.isEmpty()) {
-            throw new NotFoundException("Nenhum estabelecimento vinculado a este usuário.");
+        if (estabs == null || estabs.isEmpty()) {
+            throw new NotFoundException("Nenhum estabelecimento encontrado para este e-mail.");
         }
 
-        return estabelecimentos.stream()
-                .map(estab -> new PublicEstabelecimentoEmailResponseDTO(
-                        estab.getNome(),
-                        estab.getSlug()
-                ))
+        return estabs.stream()
+                .map(e -> new PublicEstabelecimentoEmailResponseDTO(e.getId(), e.getNome(), e.getSlug()))
                 .toList();
     }
     
