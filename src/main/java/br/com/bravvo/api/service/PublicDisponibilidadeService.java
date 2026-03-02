@@ -94,8 +94,7 @@ public class PublicDisponibilidadeService {
 		EstabelecimentoUser vinculo = estabelecimentoUserRepository
 				.findByEstabelecimentoIdAndUserId(estabelecimentoId, funcionarioId).orElse(null);
 
-		if (vinculo == null || Boolean.FALSE.equals(vinculo.getAtivo())
-				|| vinculo.getPerfil() != br.com.bravvo.api.enums.PerfilUser.FUNCIONARIO) {
+		if (vinculo == null || Boolean.FALSE.equals(vinculo.getAtivo())) {
 			return new PublicDisponibilidadeResponseDTO(data, servico.getDuracaoMin(), List.of());
 		}
 
