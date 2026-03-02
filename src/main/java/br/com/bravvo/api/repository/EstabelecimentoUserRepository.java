@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface EstabelecimentoUserRepository extends JpaRepository<EstabelecimentoUser, Long> {
@@ -80,5 +81,14 @@ public interface EstabelecimentoUserRepository extends JpaRepository<Estabelecim
 			""")
 	Page<User> searchUsersByTenant(Long estabelecimentoId, PerfilUser perfil, Boolean ativo, String q,
 			Pageable pageable);
-	
+
+	@Query("""
+	        select eu.userId
+	        from EstabelecimentoUser eu
+	        where eu.estabelecimentoId = :estabelecimentoId
+	          and eu.ativo = true
+	    """)
+	    List<Long> findActiveUserIdsByEstabelecimentoId(
+	            @Param("estabelecimentoId") Long estabelecimentoId
+	    );
 }

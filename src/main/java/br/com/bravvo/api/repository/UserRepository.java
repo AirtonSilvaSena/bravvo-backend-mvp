@@ -7,6 +7,7 @@ import org.springframework.data.domain.*;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -77,5 +78,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * Verifica se já existe usuário com esse e-mail (case-insensitive).
      */
     boolean existsByEmailIgnoreCase(String email);
+    
+    @Query("""
+    	    select eu.userId
+    	    from EstabelecimentoUser eu
+    	    where eu.estabelecimentoId = :estabelecimentoId
+    	      and eu.ativo = true
+    	""")
+    	List<Long> findActiveUserIdsByEstabelecimentoId(@Param("estabelecimentoId") Long estabelecimentoId);
      
 }

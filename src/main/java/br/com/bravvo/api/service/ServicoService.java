@@ -5,17 +5,23 @@ import br.com.bravvo.api.dto.servico.ServicoCreateRequestDTO;
 import br.com.bravvo.api.dto.servico.ServicoResponseDTO;
 import br.com.bravvo.api.dto.servico.ServicoStatusUpdateRequestDTO;
 import br.com.bravvo.api.dto.servico.ServicoUpdateRequestDTO;
+import br.com.bravvo.api.entity.FuncionarioServico;
+import br.com.bravvo.api.entity.FuncionarioServicoId;
 import br.com.bravvo.api.entity.Servico;
 import br.com.bravvo.api.enums.StatusServico;
 import br.com.bravvo.api.exception.BusinessException;
 import br.com.bravvo.api.exception.NotFoundException;
 import br.com.bravvo.api.mapper.ServicoMapper;
+import br.com.bravvo.api.repository.EstabelecimentoUserRepository;
 import br.com.bravvo.api.repository.ServicoRepository;
+import br.com.bravvo.api.repository.FuncionarioServicoRepository;
+import br.com.bravvo.api.repository.UserRepository;
 import br.com.bravvo.api.security.TenantContext;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -37,9 +43,13 @@ public class ServicoService {
 	private static final String STATUS_INATIVO = "inativo";
 
 	private final ServicoRepository servicoRepository;
+	private final FuncionarioServicoRepository funcionarioServicoRepository;
+	private final EstabelecimentoUserRepository estabelecimentoUserRepository;
 
-	public ServicoService(ServicoRepository servicoRepository) {
+	public ServicoService(ServicoRepository servicoRepository, EstabelecimentoUserRepository estabelecimentoUserRepository, FuncionarioServicoRepository funcionarioServicoRepository) {
 		this.servicoRepository = servicoRepository;
+	    this.estabelecimentoUserRepository = estabelecimentoUserRepository;
+	    this.funcionarioServicoRepository = funcionarioServicoRepository;
 	}
 
 	// =========================================================
@@ -92,31 +102,35 @@ public class ServicoService {
 
 	@Transactional
 	public ServicoResponseDTO create(ServicoCreateRequestDTO dto) {
-		Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
+	    Long estabelecimentoId = TenantContext.getEstabelecimentoIdOrThrow();
 
-		if (dto == null || dto.getNome() == null || dto.getNome().isBlank()) {
-			throw new BusinessException("Informe o nome do serviço.");
-		}
+	    if (dto == null || dto.getNome() == null || dto.getNome().isBlank()) {
+	        throw new BusinessException("Informe o nome do serviço.");
+	    }
 
-		String nomeNormalizado = dto.getNome().trim();
+	    String nomeNormalizado = dto.getNome().trim();
 
-		if (servicoRepository.existsByEstabelecimentoIdAndNomeIgnoreCase(estabelecimentoId, nomeNormalizado)) {
-			throw new BusinessException("Já existe um serviço cadastrado com esse nome.");
-		}
+	    if (servicoRepository.existsByEstabelecimentoIdAndNomeIgnoreCase(estabelecimentoId, nomeNormalizado)) {
+	        throw new BusinessException("Já existe um serviço cadastrado com esse nome.");
+	    }
 
-		Servico servico = ServicoMapper.toEntity(dto);
-		servico.setEstabelecimentoId(estabelecimentoId);
-		servico.setNome(nomeNormalizado);
+	    Servico servico = ServicoMapper.toEntity(dto);
+	    servico.setEstabelecimentoId(estabelecimentoId);
+	    servico.setNome(nomeNormalizado);
 
-		// Status default
-		if (servico.getStatus() == null || servico.getStatus().isBlank()) {
-			servico.setStatus(STATUS_ATIVO);
-		} else {
-			servico.setStatus(normalizeStatusOrThrow(servico.getStatus()));
-		}
+	    // Status default
+	    if (servico.getStatus() == null || servico.getStatus().isBlank()) {
+	        servico.setStatus(STATUS_ATIVO);
+	    } else {
+	        servico.setStatus(normalizeStatusOrThrow(servico.getStatus()));
+	    }
 
-		Servico saved = servicoRepository.save(servico);
-		return ServicoMapper.toResponse(saved);
+	    Servico saved = servicoRepository.save(servico);
+
+	    // ✅ NOVO: habilita automaticamente este serviço para todos FUNCIONARIOS do estabelecimento
+	    habilitarServicoParaTodosUsuarios(estabelecimentoId, saved.getId());
+
+	    return ServicoMapper.toResponse(saved);
 	}
 
 	// =========================================================
@@ -244,5 +258,33 @@ public class ServicoService {
 		case ATIVO -> STATUS_ATIVO;
 		case INATIVO -> STATUS_INATIVO;
 		};
+	}
+	
+	/**
+	 * Habilita um serviço recém-criado para todos os usuários ativos do estabelecimento (tenant-safe).
+	 *
+	 * ATENÇÃO: Isso cria vínculo em funcionario_servicos para QUALQUER perfil do tenant.
+	 * Se no futuro isso causar efeitos colaterais, troque para filtrar apenas FUNCIONARIO.
+	 */
+	private void habilitarServicoParaTodosUsuarios(Long estabelecimentoId, Long servicoId) {
+
+	    List<Long> userIds = estabelecimentoUserRepository
+	            .findActiveUserIdsByEstabelecimentoId(estabelecimentoId);
+
+	    if (userIds == null || userIds.isEmpty()) {
+	        return;
+	    }
+
+	    List<FuncionarioServico> vinculos = new ArrayList<>();
+
+	    for (Long userId : userIds) {
+	        if (userId == null) continue;
+
+	        FuncionarioServico fs = new FuncionarioServico();
+	        fs.setId(new FuncionarioServicoId(userId, servicoId));
+	        vinculos.add(fs);
+	    }
+
+	    funcionarioServicoRepository.saveAll(vinculos);
 	}
 }
