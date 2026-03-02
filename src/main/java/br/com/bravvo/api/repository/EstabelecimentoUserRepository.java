@@ -98,11 +98,20 @@ public interface EstabelecimentoUserRepository extends JpaRepository<Estabelecim
 			""")
 	List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
 
-	@Query(value = """
-		    SELECT eu.user_id
-		    FROM estabelecimentos_user eu
-		    WHERE eu.estabelecimento_id = :estabelecimentoId
-		      AND eu.ativo = 1
-		    """, nativeQuery = true)
-		List<Long> findActiveUserIdsByEstabelecimentoId(@Param("estabelecimentoId") Long estabelecimentoId);
+	 /**
+     * Retorna IDs de usuários ATIVOS vinculados a um estabelecimento.
+     *
+     * Usado para, por exemplo, habilitar um serviço recém-criado para todos os usuários do tenant.
+     *
+     * Importante:
+     * - Aqui retornamos Long (user_id).
+     * - Por isso o SELECT precisa ser "eu.userId" (JPQL) ou "eu.user_id" (native).
+     */
+    @Query("""
+        select eu.userId
+        from EstabelecimentoUser eu
+        where eu.estabelecimentoId = :estabelecimentoId
+          and eu.ativo = true
+    """)
+    List<Long> findActiveUserIdsByEstabelecimentoId(@Param("estabelecimentoId") Long estabelecimentoId);
 }
