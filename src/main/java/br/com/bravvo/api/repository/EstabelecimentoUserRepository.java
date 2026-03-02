@@ -83,14 +83,20 @@ public interface EstabelecimentoUserRepository extends JpaRepository<Estabelecim
 	Page<User> searchUsersByTenant(Long estabelecimentoId, PerfilUser perfil, Boolean ativo, String q,
 			Pageable pageable);
 
+	/**
+	 * Lista estabelecimentos associados ao user (via estabelecimento_users),
+	 * considerando apenas vínculos ativos (multi-tenant safe).
+	 *
+	 * OBS: Estabelecimentos NÃO possui coluna ativo no MVP.
+	 */
 	@Query("""
-		    select e
-		    from Estabelecimentos e
-		    join EstabelecimentoUser eu on eu.estabelecimentoId = e.id
-		    where eu.userId = :userId
-		      and eu.ativo = true
-		""")
-		List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
-	
+			    select e
+			    from Estabelecimentos e
+			    join EstabelecimentoUser eu on eu.estabelecimentoId = e.id
+			    where eu.userId = :userId
+			      and eu.ativo = true
+			""")
+	List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
+
 	List<Long> findActiveUserIdsByEstabelecimentoId(Long estabelecimentoId);
 }
