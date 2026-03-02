@@ -98,5 +98,11 @@ public interface EstabelecimentoUserRepository extends JpaRepository<Estabelecim
 			""")
 	List<Estabelecimentos> findAllAtivosByUserId(@Param("userId") Long userId);
 
-	List<Long> findActiveUserIdsByEstabelecimentoId(Long estabelecimentoId);
+	@Query(value = """
+		    SELECT eu.user_id
+		    FROM estabelecimentos_user eu
+		    WHERE eu.estabelecimento_id = :estabelecimentoId
+		      AND eu.ativo = 1
+		    """, nativeQuery = true)
+		List<Long> findActiveUserIdsByEstabelecimentoId(@Param("estabelecimentoId") Long estabelecimentoId);
 }
